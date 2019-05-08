@@ -4,6 +4,9 @@
 </p>
 DeepVOG is a framework for pupil segmentation and gaze estimation based on a fully convolutional neural network. Currently it is available for offline gaze estimation of eye-tracking video clips.
 
+Beside, torsional tracking is now available.
+
+
 ## Getting Started
 
 These instructions will get you a copy of the project up and running on your local machine for development and testing purposes. See deployment for notes on how to deploy the project on a live system.
@@ -42,28 +45,51 @@ $ ...
 2. It is highly recommended to run our program in docker. You can directly pull our docker image from dockerhub. (For tutorials on docker, see [docker](https://docs.docker.com/install/) and [nvidia-docker](https://github.com/NVIDIA/nvidia-docker))
 
 ```
-$ docker run --runtime=nvidia -it --rm qianyj/deepvog3d:v0.0.0 bash
+$ docker run --runtime=nvidia -it --rm qianyj/deepvog3d:v0.1.0 bash
 or
-$ nvidia-docker run -it --rm qianyj/deepvog3d:v0.0.0 bash
+$ nvidia-docker run -it --rm qianyj/deepvog3d:v0.1.0 bash
 ```
+
+### Quick Start
+Example video and results are in "example" file.
+
+To fit eyeball model with single video, an example using the video in "example/video/video.avi":
+```
+$ python -m deepvog3D --fit example/video/video.avi example/results/eyeball_model.json
+```
+
+For gaze estimation based on eyeball model, run:
+```
+$ python -m deepvog3D --infer example/video/video.avi example/results/eyeball_model.json example/results/gaze_result.csv
+```
+
+For torsional tracking, run:
+```
+$ python -m deepvog3D --torsion example/video/video.avi example/results/torsion_result.csv
+```
+
+Multiple videos and operations are available by using a csv file and the "--table" flag:
+```
+$ python -m deepvog3D --table example/list_of_operations.csv
+```
+
+Visualization of gaze and torsion results are also available by using "-v" flag to specify the path to save visualized results (.mp4 format), for example:
+```
+$ python -m deepvog3D --infer example/video/video.avi example/results/eyeball_model.json example/results/gaze_result.csv -v example/results/gaze_visualisation.mp4
+
+$ python -m deepvog3D --torsion example/video/video.avi example/results/torsion_result.csv -v example/results/torsion_visualisation.mp4
+```
+
+
 ### Usage (Command-line interface)
-If you want to fit eyeball model, you can simply run:
+Here are commands summary as mentioned in "Quick Start" with example videos.
 ```
 $ python -m deepvog3D --fit /PATH/video_fit.mp4 /PATH/eyeball_model.json
-```
 
-To infer gaze from eyeball model, run:
-```
 $ python -m deepvog3D --infer /PATH/video_infer.mp4 /PATH/eyeball_model.json /PATH/gaze_results.csv
-```
 
-You can also track torsion, run:
-```
 $ python -m deepvog3D --torsion /PATH/video_torsion.mp4 /PATH/torsion_results.csv
-```
 
-For multiple videos/operation, you can use csv file and run:
-```
 $ python -m deepvog3D --table /PATH/list_of_operations.csv
 ```
 
@@ -75,12 +101,6 @@ $ python -m deepvog --fit /PATH/video_fit.mp4 /PATH/eyeball_model.json --flen 12
 ```
 Please refer to [doc/documentation.md](doc/documentation.md) for the meaning of arguments and input/output formats. Alternatively, you can also type `$ python -m deepvog -h` for usage examples.
 
-If you want to visualize the results, please call "-v /PATH/visualisation_result.mp4", for example:
-```
-$ python -m deepvog3D --infer /PATH/video_infer.mp4 /PATH/eyeball_model.json /PATH/gaze_results.csv -v /PATH/gaze_visualisation.mp4
-
-$ python -m deepvog3D --torsion /PATH/video_torsion.mp4 /PATH/torsion_results.csv -v /PATH/torsion_visualisation.mp4
-```
 
 
 ### Usage (Text-based user interface)
@@ -133,6 +153,7 @@ If you plan to use this work in your research or product, please cite this repos
 ## Authors
 
 * **Yiu Yuk Hoi** - *Implementation and validation*
+* **Yingqian Jiang** - *Implementation and validation*
 * **Seyed-Ahmad Ahmadi** - *Research study concept*
 * **Moustafa Aboulatta** - *Initial work*
 
