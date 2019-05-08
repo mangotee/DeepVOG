@@ -1,0 +1,4 @@
+operation, fit_vid,   infer_vid,                torsion_vid,    eyeball_model,                       result
+fit      , example/videos/video.avi,          ,             ,   example/results/eyeball_model.json,  
+infer    ,         ,  example/videos/video.avi,             ,   example/results/eyeball_model.json,  example/results/gaze_result.csv
+torsion  ,         ,                          , example/videos/video.avi,                         ,  example/results/torsion_result.csv
