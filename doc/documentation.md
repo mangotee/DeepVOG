@@ -18,6 +18,7 @@ Although the default camera intrinsic parameters are given, they vary largely ac
 - `-vs` or `--vidshape`: Original and uncropped video shape of your camera output, height and width in **pixel**. Default: `(240,320)`.
 - `-s` or `--sensor`: Sensor size of your camera digital sensor, height and width in **mm**. Default: `(3.6,4.8)`. 
 - `-b` or `--batchsize`: Batch size of video frames for gaze inference. It is recommended to be higher than 32. Default: `512`.
+- `-v` or `--visualize`: Whether visualize the result or not. call with -v OUTPUT_VIDEO_PATH
 
 ## Input/output format
 
@@ -26,10 +27,10 @@ With `--table` argument, you enter the "table" mode of DeepVOG, that you can bat
 
 <pre>
     operation, fit_vid,             infer_vid,              torsion_vid,         eyeball_model,      result
-    fit      , /PATH/fit_vid1.mp4,                      ,                    ,   /PATH/model1.json,  
-    infer    ,                   ,  /PATH/infer_vid2.mp4,                    ,   /PATH/model2.json,  /PATH/output_result2.csv
-    torsion  ,                   ,                      ,   /PATH/torsion.mp4,                    ,  /PATH/output_result3.csv
-    fit      , /PATH/fit_vid4.mp4,                      ,                    ,   /PATH/model4.json,  /PATH/output_result4.csv
+    fit      , /PATH/fit_vid1.mp4,                     ,                      ,   /PATH/model1.json,  
+    infer    ,                   ,  /PATH/infer_vid.mp4,                      ,   /PATH/model1.json,  /PATH/gaze_result.csv
+    torsion  ,                   ,                     , /PATH/torsion_vid.mp4,                    ,  /PATH/torsion_result.csv
+    fit      , /PATH/fit_vid2.mp4,                     ,                      ,   /PATH/model2.json,  
     ...
 </pre>
 
@@ -39,6 +40,18 @@ With `--table` argument, you enter the "table" mode of DeepVOG, that you can bat
    * `fit`:  Fit eyeball model from the video specified in `fit_vid`, and save the model to the path specified in `eyeball_model`. Columns `infer_vid`, `torsion_vid` and `result` will be ignored.
    * `infer`: Load the eyeball model from the path specified in `eyeball_model`, infer the gaze from the video specified in `infer_vid` and save the gaze estimation results to the path specified in `result`. Columns `fit_vid` and `torsion_vid` will be ignored.
    * `torsion`: Compute rotation angle from the video specified in `torsion_vid`, and save the rotation result to the path specified in `result`. Columns `fit_vid`, `infer_vid` and `eyeball_model` will be ignored.
+
+4. Optional column `visualisation_result`, specify output video save path for the each video that you want to visualize the result, and left empty for other videos. For example:
+
+<pre>
+    operation, fit_vid,             infer_vid,              torsion_vid,         eyeball_model,      result,           visualisation_result
+    fit      , /PATH/fit_vid1.mp4,                     ,                      ,   /PATH/model1.json,     ,
+    infer    ,                   ,  /PATH/infer_vid.mp4,                      ,   /PATH/model1.json,  /PATH/gaze_result.csv, /PATH/gaze_visualization.mp4
+    torsion  ,                   ,                     , /PATH/torsion_vid.mp4,                    ,  /PATH/torsion_result.csv, /PATH/torsion_visualization.mp4
+    fit      , /PATH/fit_vid2.mp4,                     ,                      ,   /PATH/model2.json,  ,
+    ...
+</pre>
+
 
 ### Output results
 Gaze estimation result is saved in a .csv file, which contains the following information:
