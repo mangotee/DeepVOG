@@ -79,10 +79,6 @@ Example visulization of gaze estimation result:
 ```
 $ python -m deepvog3D --infer example/video/video.avi example/results/eyeball_model.json example/results/gaze_result.csv -v example/results/gaze_visualisation.mp4
 ```
-You would see the result like this:
-
-![image](https://github.com/yqianjiang/DeepVOG/blob/deepvog3d/example/results/gaze_visual.gif)
-
 
 To visualize result of torsional tracking:
 ```
