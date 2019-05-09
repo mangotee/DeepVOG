@@ -53,33 +53,42 @@ $ nvidia-docker run -it --rm qianyj/deepvog3d:v0.1.0 bash
 ### Quick Start
 Example video and results are in "example" file.
 
-To fit eyeball model with single video, an example using the video in "example/video/video.avi":
+To fit eyeball model with single video, an example using the video in "example/videos":
 ```
-$ python -m deepvog3D --fit example/video/video.avi example/results/eyeball_model.json
+$ python -m deepvog3D --fit example/videos/gaze_vid.avi example/results/eyeball_model.json
 ```
 
 For gaze estimation based on eyeball model, run:
 ```
-$ python -m deepvog3D --infer example/video/video.avi example/results/eyeball_model.json example/results/gaze_result.csv
+$ python -m deepvog3D --infer example/videos/gaze_vid.avi example/results/eyeball_model.json example/results/gaze_result.csv
 ```
 
 For torsional tracking, run:
 ```
-$ python -m deepvog3D --torsion example/video/video.avi example/results/torsion_result.csv
+$ python -m deepvog3D --torsion example/videos/torsion_vid.avi example/results/torsion_result.csv
 ```
 
-Multiple videos and operations are available by using a csv file and the "--table" flag:
+Multiple videos and operations are available by using a csv file (please refer to [doc/documentation.md](doc/documentation.md) for details) and the "--table" flag:
 ```
 $ python -m deepvog3D --table example/list_of_operations.csv
 ```
 
-Visualization of gaze and torsion results are also available by using "-v" flag to specify the path to save visualized results (.mp4 format), for example:
+Visualization of gaze and torsion results are also available by using "-v" flag to specify the path to save visualized results (.mp4 format).
+
+Example visulization of gaze estimation result:
 ```
 $ python -m deepvog3D --infer example/video/video.avi example/results/eyeball_model.json example/results/gaze_result.csv -v example/results/gaze_visualisation.mp4
-
-$ python -m deepvog3D --torsion example/video/video.avi example/results/torsion_result.csv -v example/results/torsion_visualisation.mp4
 ```
 
+To visualize result of torsional tracking:
+```
+$ python -m deepvog3D --torsion example/video/video.avi example/results/torsion_result.csv -v example/results/torsion_visualisation.mp4
+```
+You would see the result like this:
+
+![image](https://github.com/yqianjiang/DeepVOG/blob/deepvog3d/example/results/torsion_visual.gif)
+
+To specify visualization in csv file, please refer to [doc/documentation.md](doc/documentation.md).
 
 ### Usage (Command-line interface)
 Here are commands summary as mentioned in "Quick Start" with example videos.
