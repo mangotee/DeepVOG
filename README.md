@@ -53,19 +53,19 @@ $ nvidia-docker run -it --rm qianyj/deepvog3d:v0.1.0 bash
 ### Quick Start
 Example video and results are in "example" file.
 
-To fit eyeball model with single video, an example using the video in "example/video/video.avi":
+To fit eyeball model with single video, an example using the video in "example/videos":
 ```
-$ python -m deepvog3D --fit example/video/video.avi example/results/eyeball_model.json
+$ python -m deepvog3D --fit example/videos/gaze_vid.avi example/results/eyeball_model.json
 ```
 
 For gaze estimation based on eyeball model, run:
 ```
-$ python -m deepvog3D --infer example/video/video.avi example/results/eyeball_model.json example/results/gaze_result.csv
+$ python -m deepvog3D --infer example/videos/gaze_vid.avi example/results/eyeball_model.json example/results/gaze_result.csv
 ```
 
 For torsional tracking, run:
 ```
-$ python -m deepvog3D --torsion example/video/video.avi example/results/torsion_result.csv
+$ python -m deepvog3D --torsion example/videos/torsion_vid.avi example/results/torsion_result.csv
 ```
 
 Multiple videos and operations are available by using a csv file (please refer to [doc/documentation.md](doc/documentation.md) for details) and the "--table" flag:
