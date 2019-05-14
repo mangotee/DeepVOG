@@ -77,18 +77,22 @@ Visualization of gaze and torsion results are also available by using "-v" flag 
 
 Example visulization of gaze estimation result:
 ```
-$ python -m deepvog3D --infer example/videos/gaze_vid.mp4 example/results/eyeball_model.json example/results/gaze_result.csv -v example/results/gaze_visualisation.mp4
+$ python -m deepvog3D --infer example/videos/gaze_vid.mp4 example/results/eyeball_model.json example/results/gaze_result.csv -v example/results/gaze_visualization.mp4
 ```
 
 To visualize result of torsional tracking:
 ```
-$ python -m deepvog3D --torsion example/videos/torsion_vid.avi example/results/torsion_result.csv -v example/results/torsion_visualisation.mp4
+$ python -m deepvog3D --torsion example/videos/torsion_vid.avi example/results/torsion_result.csv -v example/results/torsion_visualization.mp4
 ```
 You would see the result like this:
 
 ![image](https://github.com/yqianjiang/DeepVOG/blob/deepvog3d/example/results/torsion_visual.gif)
 
-To specify visualization in csv file, please refer to [doc/documentation.md](doc/documentation.md).
+To specify visualization in csv file, please refer to [doc/documentation.md](doc/documentation.md), you can use the example csv file to run:
+```
+$ python -m deepvog3D --table example/list_of_operations_visualize.csv
+```
+
 
 ### Usage (Command-line interface)
 Here are commands summary as mentioned in "Quick Start" with example videos.
