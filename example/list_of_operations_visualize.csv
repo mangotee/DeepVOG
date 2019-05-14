@@ -1,4 +1,4 @@
 operation, fit_vid,   infer_vid,                torsion_vid,    eyeball_model,                       result,       visualisation_result
-fit      , example/videos/video.avi,          ,             ,   example/results/eyeball_model.json,   ,
-infer    ,         ,  example/videos/video.avi,             ,   example/results/eyeball_model.json,  example/results/gaze_result.csv,  example/results/gaze_visualization.mp4
-torsion  ,         ,                          , example/videos/video.avi,                         ,  example/results/torsion_result.csv,  example/results/torsion_visualization.mp4
+fit      , example/videos/gaze_vid.mp4,          ,             ,   example/results/eyeball_model.json,   ,
+infer    ,         ,  example/videos/gaze_vid.mp4,             ,   example/results/eyeball_model.json,  example/results/gaze_result.csv,  example/results/gaze_visualization.mp4
+torsion  ,         ,                          , example/videos/torsion_vid.avi,                         ,  example/results/torsion_result.csv,  example/results/torsion_visualization.mp4
