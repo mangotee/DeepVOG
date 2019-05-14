@@ -55,12 +55,12 @@ Example video and results are in "example" file.
 
 To fit eyeball model with single video, an example using the video in "example/videos":
 ```
-$ python -m deepvog3D --fit example/videos/gaze_vid.avi example/results/eyeball_model.json
+$ python -m deepvog3D --fit example/videos/gaze_vid.mp4 example/results/eyeball_model.json
 ```
 
 For gaze estimation based on eyeball model, run:
 ```
-$ python -m deepvog3D --infer example/videos/gaze_vid.avi example/results/eyeball_model.json example/results/gaze_result.csv
+$ python -m deepvog3D --infer example/videos/gaze_vid.mp4 example/results/eyeball_model.json example/results/gaze_result.csv
 ```
 
 For torsional tracking, run:
@@ -77,12 +77,12 @@ Visualization of gaze and torsion results are also available by using "-v" flag 
 
 Example visulization of gaze estimation result:
 ```
-$ python -m deepvog3D --infer example/video/video.avi example/results/eyeball_model.json example/results/gaze_result.csv -v example/results/gaze_visualisation.mp4
+$ python -m deepvog3D --infer example/videos/gaze_vid.mp4 example/results/eyeball_model.json example/results/gaze_result.csv -v example/results/gaze_visualisation.mp4
 ```
 
 To visualize result of torsional tracking:
 ```
-$ python -m deepvog3D --torsion example/video/video.avi example/results/torsion_result.csv -v example/results/torsion_visualisation.mp4
+$ python -m deepvog3D --torsion example/videos/torsion_vid.avi example/results/torsion_result.csv -v example/results/torsion_visualisation.mp4
 ```
 You would see the result like this:
 
