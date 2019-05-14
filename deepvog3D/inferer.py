@@ -233,7 +233,7 @@ class gaze_inferer(object):
 
     def _fitting_batch(self, Y_batch):
         for Y_each in Y_batch:
-            pred_each = Y_each[:,:,1]
+            pred_each = Y_each[:,:,0]
             _, _, _, _, (_, _, centre, w, h, radian, ellipse_confidence) = self.eyefitter.unproject_single_observation(pred_each)
 
             if (ellipse_confidence > self.confidence_fitting_threshold) and (centre is not None):
@@ -242,7 +242,7 @@ class gaze_inferer(object):
     def _infer_batch(self, Y_batch, idx):
         for batch_idx, Y_each in enumerate(Y_batch):
             frame = idx + batch_idx + 1
-            pred_each = Y_each[:,:,1]
+            pred_each = Y_each[:,:,0]
             _, _, _, _, (_, _, centre, w, h, radian, ellipse_confidence) = self.eyefitter.unproject_single_observation(pred_each)            
             
             if centre is not None:

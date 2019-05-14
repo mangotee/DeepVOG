@@ -242,7 +242,7 @@ class Visualizer(gaze_inferer):
 
         for batch_idx, (X_each, Y_each) in enumerate(zip(X_batch, Y_batch)):
             frame = idx + batch_idx + 1
-            pred_each = Y_each[:, :, 1]
+            pred_each = Y_each[:, :, 0]
             # In the method of eyefitter.unproject_single_observation(), you will need to call fit_ellipse() instead of
             # fit_ellipse_compact() to get the indexes for drawing (rr and cc). I have this modification here.
             _, _, _, _, ellipse_info = self.eyefitter.unproject_single_observation(pred_each)
