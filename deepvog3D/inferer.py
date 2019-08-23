@@ -276,10 +276,13 @@ class gaze_inferer(object):
             useful_map, (pupil_map, _, _, _) = getSegmentation_fromDL(pred)
             rr, _, centre, _, _, _, _, _ = fit_ellipse(pupil_map, 0.5)
             
+            refer_frame = 0
+
             if centre == None:
+                refer_frame+=1
                 continue
             # Cross-correlation
-            if idx == 1 :
+            if idx == refer_frame :
                 try:
                     __, polar_pattern_template_longer, __, __, __ = genPolar(frame_gray, useful_map, center = centre, template = True,
                                                                                             filter_sigma = 100, adhist_times = 2)
