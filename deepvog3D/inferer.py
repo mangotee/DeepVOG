@@ -266,6 +266,7 @@ class gaze_inferer(object):
 
 
     def _infer_torsion_batch(self, X_batch, Y_batch, update_template = False):
+        refer_frame = 0
         for idx, pred in enumerate(Y_batch):
             
             pred_masked = np.ma.masked_where(pred < 0.5, pred)
@@ -275,8 +276,6 @@ class gaze_inferer(object):
             frame_gray = frame[:,:,0] # frame_gray ~ (240, 320)
             useful_map, (pupil_map, _, _, _) = getSegmentation_fromDL(pred)
             rr, _, centre, _, _, _, _, _ = fit_ellipse(pupil_map, 0.5)
-            
-            refer_frame = 0
 
             if centre == None:
                 refer_frame+=1
@@ -290,6 +289,7 @@ class gaze_inferer(object):
                     import pdb
                     pdb.set_trace()
                 rotation = 0
+                refer_frame = 0
             elif rr is not None:
                 # for finding the rotation value and determine if it is needed to update
                 rotation, _ , _ = findTorsion(polar_pattern_template_longer, frame_gray, useful_map, center = centre,
