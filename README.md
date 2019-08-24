@@ -45,9 +45,9 @@ $ ...
 2. It is highly recommended to run our program in docker. You can directly pull our docker image from dockerhub. (For tutorials on docker, see [docker](https://docs.docker.com/install/) and [nvidia-docker](https://github.com/NVIDIA/nvidia-docker))
 
 ```
-$ docker run --runtime=nvidia -it --rm qianyj/deepvog3d:v0.1.1 bash
+$ docker run --runtime=nvidia -it --rm qianyj/deepvog3d:v0.2.0 bash
 or
-$ nvidia-docker run -it --rm qianyj/deepvog3d:v0.1.1 bash
+$ nvidia-docker run -it --rm qianyj/deepvog3d:v0.2.0 bash
 ```
 
 ### Quick Start
