@@ -200,9 +200,9 @@ class Visualizer(gaze_inferer):
                         positions, gaze_angles, inference_confidence = self._infer_batch(Y_batch, idx - batch_size)
                 elif(mode == "torsion"):
                     if output_vis_path:
-                        self._infer_torsion_vis_batch(X_batch, Y_batch)                        
+                        self._infer_torsion_vis_batch(X_batch, Y_batch, idx-batch_size)                        
                     else:
-                        self._infer_torsion_batch(X_batch, Y_batch)
+                        self._infer_torsion_batch(X_batch, Y_batch, idx-batch_size)
                 X_batch = np.zeros((batch_size, 240, 320, 1))
                 X_batch[mini_batch_idx, :, :, :] = frame_preprocessed
 
@@ -223,9 +223,9 @@ class Visualizer(gaze_inferer):
                         positions, gaze_angles, inference_confidence = self._infer_batch(Y_batch, idx - final_batch_size)
                 elif(mode == "torsion"):
                     if output_vis_path:
-                        self._infer_torsion_vis_batch(X_batch_final, Y_batch)
+                        self._infer_torsion_vis_batch(X_batch_final, Y_batch, idx-batch_size)
                     else:
-                        self._infer_torsion_batch(X_batch_final, Y_batch)
+                        self._infer_torsion_batch(X_batch_final, Y_batch, idx-batch_size)
             else:
                 import pdb
                 pdb.set_trace()
@@ -280,16 +280,16 @@ class Visualizer(gaze_inferer):
                 self.vwriter.writeFrame(vid_frame)
         return positions, gaze_angles, inference_confidence
 
-    def _infer_torsion_vis_batch (self, X_batch, Y_batch, update_template = False):
+    def _infer_torsion_vis_batch (self, X_batch, Y_batch, idx, update_template = False):
         # do visulisation for torsion
-
-        for idx, pred in enumerate(Y_batch):
-
+        refer_frame = 0
+        for batch_idx, pred in enumerate(Y_batch):
+            frame_id = idx + batch_idx
             pred_masked = np.ma.masked_where(pred < 0.5, pred)
 
             # Initialize frames and maps
-            frame = img_as_float(X_batch[idx]) # frame ~ (240, 320, 1)
-            frame_gray = rgb2gray(frame)[0,:,:,0] # frame_gray ~ (240, 320)
+            frame = img_as_float(X_batch[batch_idx]) # frame ~ (240, 320, 1)
+            frame_gray = rgb2gray(frame)[:,:,0] # frame_gray ~ (240, 320)
             frame_rgb = np.zeros((frame.shape[0], frame.shape[1], 3)) # frame_rgb ~ (240, 320, 3)
             frame_rgb[:,:,:] = frame_gray.reshape(frame_gray.shape[0], frame_gray.shape[1], 1)
             useful_map, (pupil_map, _, _, _) = getSegmentation_fromDL(pred)
@@ -297,10 +297,13 @@ class Visualizer(gaze_inferer):
             rr, _, centre, _, _, _, _, _ = fit_ellipse(pupil_map, 0.5)
                 
             if centre == None:
+                refer_frame+=1
+                if self.logger is not None:
+                    self.logger.info("frame " + str(frame_id) + " : centre is None")
                 continue
 
             # Cross-correlation
-            if idx == 1 :
+            if frame_id == refer_frame :
                 try:
                     polar_pattern_template, polar_pattern_template_longer, r_template, theta_template, extra_radian = genPolar(frame_gray, useful_map, center = centre, template = True,
                                                                                         filter_sigma = 100, adhist_times = 2)
@@ -309,6 +312,10 @@ class Visualizer(gaze_inferer):
                 except:
                     import pdb
                     pdb.set_trace()
+                refer_frame = 0
+                if self.logger is not None:
+                    self.logger.info("frame "+str(frame_id) +
+                                     " is set as the first template")
             elif rr is not None:
                 # for finding the rotation value and determine if it is needed to update
                 rotation, rotated_info , _  = findTorsion(polar_pattern_template_longer, frame_gray, useful_map, center = centre,
@@ -320,10 +327,12 @@ class Visualizer(gaze_inferer):
                                                                                 filter_sigma = 100, adhist_times = 2)
             else:
                 rotation, rotated_info = np.nan, None
+                if self.logger is not None:
+                    self.logger.info('rr is None, rotation set to np.nan')
 
             
             self.rotation_results.append(rotation)
-            self.results_recorder.write("{},{}\n".format(idx, rotation))
+            self.results_recorder.write("{},{}\n".format(frame_id, rotation))
             
             # Drawing the frames of visualisation video
             rotation_plot_arr = self._plot_rotation_curve(idx)

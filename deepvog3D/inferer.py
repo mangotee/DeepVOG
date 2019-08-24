@@ -28,7 +28,7 @@ Ensure video has:
 
 
 class gaze_inferer(object):
-    def __init__(self, model, flen, ori_video_shape, sensor_size):
+    def __init__(self, model, flen, ori_video_shape, sensor_size, logger = None):
         """
         Initialize necessary parameters and load deep_learning model
         
@@ -60,6 +60,7 @@ class gaze_inferer(object):
         
 
         self.model = model
+        self.logger = logger
         self.confidence_fitting_threshold = 0.96
         self.eyefitter = SingleEyeFitter(focal_length= self.flen * self.mm2px_scaling,
                                          pupil_radius= 2 * self.mm2px_scaling,
@@ -173,7 +174,7 @@ class gaze_inferer(object):
                 if(mode == "gaze"):
                     positions, gaze_angles, inference_confidence = self._infer_batch(Y_batch, idx-batch_size)
                 else:
-                    self._infer_torsion_batch(X_batch, Y_batch)
+                    self._infer_torsion_batch(X_batch, Y_batch, idx-batch_size)
                 X_batch = np.zeros((batch_size, 240, 320, 1))
                 X_batch[mini_batch_idx, :, :, :] = frame_preprocessed
 
@@ -189,14 +190,13 @@ class gaze_inferer(object):
                 # =============== infer angles by batch here ====================
                 if(mode == "gaze"):
                     positions, gaze_angles, inference_confidence = self._infer_batch(Y_batch, idx - final_batch_size)
-                    #if(mode == 2):
-                    #    self._infer_torsion_batch(X_batch, Y_batch)
                 else:
-                    self._infer_torsion_batch(X_batch_final, Y_batch)
+                    self._infer_torsion_batch(X_batch_final, Y_batch, idx-batch_size)
             else:
                 import pdb
                 pdb.set_trace()
         self.results_recorder.close()
+        del self.template
         print()
 
 
@@ -265,43 +265,50 @@ class gaze_inferer(object):
         return positions, gaze_angles, inference_confidence
 
 
-    def _infer_torsion_batch(self, X_batch, Y_batch, update_template = False):
+    def _infer_torsion_batch(self, X_batch, Y_batch, idx, update_template = False):
         refer_frame = 0
-        for idx, pred in enumerate(Y_batch):
-            
+        for batch_idx, pred in enumerate(Y_batch):
+            frame_id = idx + batch_idx
             pred_masked = np.ma.masked_where(pred < 0.5, pred)
 
             # Initialize frames and maps
-            frame = img_as_float(X_batch[idx]) # frame ~ (240, 320, 1)
+            frame = img_as_float(X_batch[batch_idx]) # frame ~ (240, 320, 1)
             frame_gray = frame[:,:,0] # frame_gray ~ (240, 320)
             useful_map, (pupil_map, _, _, _) = getSegmentation_fromDL(pred)
             rr, _, centre, _, _, _, _, _ = fit_ellipse(pupil_map, 0.5)
 
             if centre == None:
                 refer_frame+=1
+                if self.logger is not None:
+                    self.logger.info("frame " + str(frame_id) + " : centre is None")
                 continue
             # Cross-correlation
-            if idx == refer_frame :
+            if frame_id == refer_frame :
                 try:
-                    __, polar_pattern_template_longer, __, __, __ = genPolar(frame_gray, useful_map, center = centre, template = True,
+                    __, self.template, __, __, __ = genPolar(frame_gray, useful_map, center = centre, template = True,
                                                                                             filter_sigma = 100, adhist_times = 2)
                 except:
                     import pdb
                     pdb.set_trace()
                 rotation = 0
                 refer_frame = 0
+                if self.logger is not None:
+                    self.logger.info("frame "+str(frame_id) +
+                                     " is set as the first template")
             elif rr is not None:
                 # for finding the rotation value and determine if it is needed to update
-                rotation, _ , _ = findTorsion(polar_pattern_template_longer, frame_gray, useful_map, center = centre,
+                rotation, _ , _ = findTorsion(self.template, frame_gray, useful_map, center = centre,
                                                         filter_sigma = 100, adhist_times = 2)
                 if (update_template == True) and rotation == 0:
-                    __, polar_pattern_template_longer, __, __, __ = genPolar(frame_gray, useful_map, center = centre, template = True,
+                    __, self.template, __, __, __ = genPolar(frame_gray, useful_map, center = centre, template = True,
                                                                                                     filter_sigma = 100, adhist_times = 2)
             else:
                 rotation = np.nan
+                if self.logger is not None:
+                    self.logger.info('rr is None, rotation set to np.nan')
 
             self.rotation_results.append(rotation)
-            self.results_recorder.write("{},{}\n".format(idx, rotation))
+            self.results_recorder.write("{},{}\n".format(frame_id, rotation))
             
 
     def _get_video_info(self, video_src):

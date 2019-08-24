@@ -42,23 +42,25 @@ def genPolar(img, useful_map, center, template=False, filter_sigma = 1, adhist_t
     else:
         return output, r, theta
 
-# def findTorsion(output_template, img_r, useful_map_r, center,  filter_sigma = 1, adhist_times = 2):
-#     output_r, r_r, theta_r = genPolar(img_r, useful_map_r, center , filter_sigma = filter_sigma, adhist_times = adhist_times)
-#     output_coor = correlate(output_template, output_r, mode="same", method = "fft")
-#     output_mean = output_coor.mean(axis=0)
-#     max_index = np.where(output_mean == output_mean.max())
-#     rotation = max_index[0]/50-(180+25)
-#     return rotation.squeeze(), (output_r, r_r, theta_r), output_coor
+
 
 def findTorsion(output_template, img_r, useful_map_r, center,  filter_sigma = 1, adhist_times = 2):
+    # polar transform img_r to output_r
     output_r, r_r, theta_r = genPolar(img_r, useful_map_r, center , filter_sigma = filter_sigma, adhist_times = adhist_times)
-    #output_coor = correlate(output_template, output_r, mode="same", method = "fft")
-    rows, cols = output_r.shape
-    output_r_pad = np.pad(output_r, ((rows//2, rows//2-1),(cols//2-1, cols//2)),'constant',constant_values=(0,0))
+    
+    # template matching
+    cols = output_r.shape[1]
+    
+    output_r = cv2.resize(output_r, (cols, output_template.shape[0]), interpolation=cv2.INTER_CUBIC)
+    
+    output_r_pad = np.pad(output_r, ((0, 0),(cols//2, cols//2)),'constant',constant_values=(0,0))
+
     output_r_pad = output_r_pad.astype(np.float32)
     output_template = output_template.astype(np.float32)
-    output_coor = cv2.matchTemplate(output_r_pad, output_template, cv2.TM_CCORR_NORMED)
-    __,__,__,max_loc = cv2.minMaxLoc(output_coor)
-    max_index = np.array(max_loc)
-    rotation = (180-25)-max_index[0]/50
-    return rotation.squeeze(), (output_r, r_r, theta_r), output_coor
+
+    corr = cv2.matchTemplate(output_r_pad, output_template, cv2.TM_CCORR_NORMED)
+    
+    max_index = np.argmax(corr)
+    rotation = max_index/50-(180-25)
+    
+    return rotation.squeeze(), (output_r, r_r, theta_r), corr
