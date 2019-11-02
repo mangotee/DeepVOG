@@ -210,7 +210,7 @@ class gaze_inferer(object):
         
         if (self.eyefitter.eye_centre is None) or (self.eyefitter.aver_eye_radius is None):
             print("3D eyeball model not found")
-            raise
+            raise Exception("3D eyeball model not found")
         else:
             save_dict = {"eye_centre": self.eyefitter.eye_centre.tolist(),
                          "aver_eye_radius": self.eyefitter.aver_eye_radius}

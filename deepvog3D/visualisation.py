@@ -13,6 +13,10 @@ from .deepvog_torsion.torsion_lib.Segmentation import getSegmentation_fromDL
 from .deepvog_torsion.torsion_lib.draw_ellipse import fit_ellipse
 from .deepvog_torsion.torsion_lib.CrossCorrelation import genPolar, findTorsion
 
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+from matplotlib.figure import Figure
+
+
 def draw_line(output_frame, frame_shape, o, l, color = [255,0,0]):
     """
 
@@ -174,61 +178,116 @@ class Visualizer(gaze_inferer):
             self.time_display = 150 # range of frame when plotting graph
            
 
+        # final_batch_size = infervid_m % batch_size
+        # final_batch_idx = infervid_m - final_batch_size
+        # X_batch = np.zeros((batch_size, 240, 320, 1))
+        # X_batch_final = np.zeros((infervid_m % batch_size, 240, 320, 1))
+        # for idx, frame in enumerate(vreader.nextFrame()):
+        #
+        #     print("\r%sInferring %s (%d%%)" % (print_prefix, video_name_root + ext, (idx / infervid_m) * 100), end="",
+        #           flush=True)
+        #     frame_preprocessed = self._preprocess_image(frame, shape_correct)
+        #     mini_batch_idx = idx % batch_size
+        #     print(frame_preprocessed.shape)
+        #     plt.imshow(frame_preprocessed[:,:,0])
+        #     plt.show()
+        #
+        #     # Before reaching the batch size, stack the array
+        #     if ((mini_batch_idx != 0) and (idx < final_batch_idx)) or (idx == 0):
+        #         X_batch[mini_batch_idx, :, :, :] = frame_preprocessed
+        #
+        #     # After reaching the batch size, but not the final batch, predict and infer angles
+        #     elif ((mini_batch_idx == 0) and (idx < final_batch_idx) or (idx == final_batch_idx)):
+        #         Y_batch = self.model.predict(X_batch)
+        #         # =============== infer angles by batch here ====================
+        #         if(mode == "gaze"):
+        #             if output_vis_path:
+        #                 positions, gaze_angles, inference_confidence = self._infer_vis_batch(X_batch, Y_batch, idx - batch_size)
+        #             else:
+        #                 positions, gaze_angles, inference_confidence = self._infer_batch(Y_batch, idx - batch_size)
+        #         elif(mode == "torsion"):
+        #             if output_vis_path:
+        #                 self._infer_torsion_vis_batch(X_batch, Y_batch, idx-batch_size)
+        #             else:
+        #                 self._infer_torsion_batch(X_batch, Y_batch, idx-batch_size)
+        #         X_batch = np.zeros((batch_size, 240, 320, 1))
+        #         X_batch[mini_batch_idx, :, :, :] = frame_preprocessed
+        #
+        #     # Within the final batch but not yet reaching the last index, stack the array
+        #     elif ((idx > final_batch_idx) and (idx != infervid_m - 1)):
+        #         X_batch_final[idx - final_batch_idx, :, :, :] = frame_preprocessed
+        #
+        #     # Within the final batch and reaching the last index, predict and infer angles
+        #     elif (idx == infervid_m - 1):
+        #         print("\r%sInferring %s (100%%)" % (print_prefix, video_name_root + ext), end="\n", flush=True)
+        #         X_batch_final[idx - final_batch_idx, :, :, :] = frame_preprocessed
+        #         Y_batch = self.model.predict(X_batch_final)
+        #         # =============== infer angles by batch here ====================
+        #         if(mode == "gaze"):
+        #             if output_vis_path:
+        #                 positions, gaze_angles, inference_confidence = self._infer_vis_batch(X_batch, Y_batch, idx - final_batch_size)
+        #             else:
+        #                 positions, gaze_angles, inference_confidence = self._infer_batch(Y_batch, idx - final_batch_size)
+        #         elif(mode == "torsion"):
+        #             if output_vis_path:
+        #                 self._infer_torsion_vis_batch(X_batch_final, Y_batch, idx-batch_size)
+        #             else:
+        #                 self._infer_torsion_batch(X_batch_final, Y_batch, idx-batch_size)
+        #     else:
+        #         print("PATH 5")
+        #         import pdb
+        #         pdb.set_trace()
+
+        # Rewrite (Johann)
+        tmp_refer_frame = 0
+        tmp_has_refer = False
+
         final_batch_size = infervid_m % batch_size
         final_batch_idx = infervid_m - final_batch_size
         X_batch = np.zeros((batch_size, 240, 320, 1))
         X_batch_final = np.zeros((infervid_m % batch_size, 240, 320, 1))
+        reached_final = False
         for idx, frame in enumerate(vreader.nextFrame()):
-
-            print("\r%sInferring %s (%d%%)" % (print_prefix, video_name_root + ext, (idx / infervid_m) * 100), end="",
+            print("\r%sInferring %s (%d%%)" % (print_prefix, video_name_root + ext, (idx / infervid_m) * 100),
+                  end="",
                   flush=True)
             frame_preprocessed = self._preprocess_image(frame, shape_correct)
             mini_batch_idx = idx % batch_size
 
-            # Before reaching the batch size, stack the array
-            if ((mini_batch_idx != 0) and (idx < final_batch_idx)) or (idx == 0):
-                X_batch[mini_batch_idx, :, :, :] = frame_preprocessed
-
-            # After reaching the batch size, but not the final batch, predict and infer angles
-            elif ((mini_batch_idx == 0) and (idx < final_batch_idx) or (idx == final_batch_idx)):
-                Y_batch = self.model.predict(X_batch)
-                # =============== infer angles by batch here ====================
-                if(mode == "gaze"):
-                    if output_vis_path:
-                        positions, gaze_angles, inference_confidence = self._infer_vis_batch(X_batch, Y_batch, idx - batch_size)
-                    else:
-                        positions, gaze_angles, inference_confidence = self._infer_batch(Y_batch, idx - batch_size)
-                elif(mode == "torsion"):
-                    if output_vis_path:
-                        self._infer_torsion_vis_batch(X_batch, Y_batch, idx-batch_size)                        
-                    else:
-                        self._infer_torsion_batch(X_batch, Y_batch, idx-batch_size)
-                X_batch = np.zeros((batch_size, 240, 320, 1))
-                X_batch[mini_batch_idx, :, :, :] = frame_preprocessed
-
-            # Within the final batch but not yet reaching the last index, stack the array
-            elif ((idx > final_batch_idx) and (idx != infervid_m - 1)):
-                X_batch_final[idx - final_batch_idx, :, :, :] = frame_preprocessed
-
-            # Within the final batch and reaching the last index, predict and infer angles
-            elif (idx == infervid_m - 1):
-                print("\r%sInferring %s (100%%)" % (print_prefix, video_name_root + ext), end="", flush=True)
-                X_batch_final[idx - final_batch_idx, :, :, :] = frame_preprocessed
-                Y_batch = self.model.predict(X_batch_final)
-                # =============== infer angles by batch here ====================
-                if(mode == "gaze"):
-                    if output_vis_path:
-                        positions, gaze_angles, inference_confidence = self._infer_vis_batch(X_batch, Y_batch, idx - final_batch_size)
-                    else:
-                        positions, gaze_angles, inference_confidence = self._infer_batch(Y_batch, idx - final_batch_size)
-                elif(mode == "torsion"):
-                    if output_vis_path:
-                        self._infer_torsion_vis_batch(X_batch_final, Y_batch, idx-batch_size)
-                    else:
-                        self._infer_torsion_batch(X_batch_final, Y_batch, idx-batch_size)
+            # We need to detect, which array to use
+            if idx >= final_batch_idx:
+                reached_final = True
+                X_batch_final[mini_batch_idx,:,:,:] = frame_preprocessed
             else:
-                import pdb
-                pdb.set_trace()
+                X_batch[mini_batch_idx,:,:,:] = frame_preprocessed
+
+
+            # Check whether we need to infer batch
+            if (     reached_final  and mini_batch_idx+1 == final_batch_size) or \
+               ( not reached_final  and mini_batch_idx+1 == batch_size):
+                # The minibatch is filled! Let's infer from that batch.
+
+                if reached_final:
+                    curr_x_batch = X_batch_final
+                    idx_start = final_batch_idx
+                else:
+                    curr_x_batch = X_batch
+                    idx_start = idx - batch_size
+
+                Y_batch = self.model.predict(curr_x_batch)
+                # =============== infer angles by batch here ====================
+                if (mode == "gaze"):
+                    if output_vis_path:
+                        positions, gaze_angles, inference_confidence = self._infer_vis_batch(curr_x_batch, Y_batch,
+                                                                                             idx_start)
+                    else:
+                        positions, gaze_angles, inference_confidence = self._infer_batch(Y_batch, idx_start)
+                elif (mode == "torsion"):
+                    if output_vis_path:
+                        tmp_refer_frame, tmp_has_refer = self._infer_torsion_vis_batch(curr_x_batch, Y_batch, idx_start,refer_frame=tmp_refer_frame,has_refer=tmp_has_refer)
+                    else:
+                        self._infer_torsion_batch(curr_x_batch, Y_batch, idx_start)
+
         self.results_recorder.close()
         if output_vis_path:
             self.vwriter.close()
@@ -280,107 +339,153 @@ class Visualizer(gaze_inferer):
                 self.vwriter.writeFrame(vid_frame)
         return positions, gaze_angles, inference_confidence
 
-    def _infer_torsion_vis_batch (self, X_batch, Y_batch, idx, update_template = False):
+    def _infer_torsion_vis_batch (self, X_batch, Y_batch, idx, update_template = False,refer_frame=0,has_refer = False):
         # do visulisation for torsion
-        refer_frame = 0
+
         for batch_idx, pred in enumerate(Y_batch):
             frame_id = idx + batch_idx
             pred_masked = np.ma.masked_where(pred < 0.5, pred)
 
             # Initialize frames and maps
             frame = img_as_float(X_batch[batch_idx]) # frame ~ (240, 320, 1)
-            frame_gray = rgb2gray(frame)[:,:,0] # frame_gray ~ (240, 320)
+            frame_gray = rgb2gray(frame)[0,:,:,0] # frame_gray ~ (240, 320)
             frame_rgb = np.zeros((frame.shape[0], frame.shape[1], 3)) # frame_rgb ~ (240, 320, 3)
             frame_rgb[:,:,:] = frame_gray.reshape(frame_gray.shape[0], frame_gray.shape[1], 1)
             useful_map, (pupil_map, _, _, _) = getSegmentation_fromDL(pred)
             _, (pupil_map_masked, iris_map_masked, glints_map_masked, visible_map_masked) = getSegmentation_fromDL(pred_masked)
             rr, _, centre, _, _, _, _, _ = fit_ellipse(pupil_map, 0.5)
-                
-            if centre == None:
-                refer_frame+=1
-                if self.logger is not None:
-                    self.logger.info("frame " + str(frame_id) + " : centre is None")
-                continue
 
-            # Cross-correlation
-            if frame_id == refer_frame :
-                try:
+            # if centre == None:
+            #     refer_frame+=1
+            #     print("frame " + str(frame_id) + " : centre is None")
+            #     if self.logger is not None:
+            #         self.logger.info("frame " + str(frame_id) + " : centre is None")
+            #     continue # skip frame
+            #
+            # # Cross-correlation
+            # if frame_id == refer_frame :
+            #     try:
+            #         polar_pattern_template, polar_pattern_template_longer, r_template, theta_template, extra_radian = genPolar(frame_gray, useful_map, center = centre, template = True,
+            #                                                                             filter_sigma = 100, adhist_times = 2)
+            #         rotated_info = (polar_pattern_template, r_template, theta_template)
+            #         rotation = 0
+            #     except:
+            #         import pdb
+            #         pdb.set_trace()
+            #     refer_frame = 0
+            #     print("frame "+str(frame_id) +
+            #                          " is set as the first template")
+            #     if self.logger is not None:
+            #         self.logger.info("frame "+str(frame_id) +
+            #                          " is set as the first template")
+            # elif rr is not None:
+            #     # for finding the rotation value and determine if it is needed to update
+            #     rotation, rotated_info , _  = findTorsion(polar_pattern_template_longer, frame_gray, useful_map, center = centre,
+            #                                             filter_sigma = 100, adhist_times = 2)
+            #
+            #
+            #     if (update_template == True) and rotation == 0:
+            #         polar_pattern_template, polar_pattern_template_longer, r_template, theta_template, extra_radian = genPolar(frame_gray, useful_map, center = centre, template = True,
+            #                                                                     filter_sigma = 100, adhist_times = 2)
+            # else:
+            #     rotation, rotated_info = np.nan, None
+            #     print('rr is None, rotation set to np.nan')
+            #     if self.logger is not None:
+            #         self.logger.info('rr is None, rotation set to np.nan')
+
+
+            # Rewrite (Johann)
+
+            # find reference point
+            if not has_refer and centre is not None and rr is not None:
+                has_refer = True
+                refer_frame = frame_id
+                #print("Frame {} is selected as reference.".format(frame_id))
+
+            if centre is not None:
+                # We have found a pupil
+
+                # Cross-correlation
+                if frame_id == refer_frame:
                     polar_pattern_template, polar_pattern_template_longer, r_template, theta_template, extra_radian = genPolar(frame_gray, useful_map, center = centre, template = True,
                                                                                         filter_sigma = 100, adhist_times = 2)
                     rotated_info = (polar_pattern_template, r_template, theta_template)
-                    rotation = 0                                                                        
-                except:
-                    import pdb
-                    pdb.set_trace()
-                refer_frame = 0
-                if self.logger is not None:
-                    self.logger.info("frame "+str(frame_id) +
-                                     " is set as the first template")
-            elif rr is not None:
-                # for finding the rotation value and determine if it is needed to update
-                rotation, rotated_info , _  = findTorsion(polar_pattern_template_longer, frame_gray, useful_map, center = centre,
-                                                        filter_sigma = 100, adhist_times = 2)
+                    rotation = 0
+                elif rr is not None:
+                    # for finding the rotation value and determine if it is needed to update
+                    rotation, rotated_info , _  = findTorsion(polar_pattern_template_longer, frame_gray, useful_map, center = centre,
+                                                            filter_sigma = 100, adhist_times = 2)
 
+                    if update_template and rotation == 0:
+                        polar_pattern_template, polar_pattern_template_longer, r_template, theta_template, extra_radian = genPolar(frame_gray, useful_map, center = centre, template = True,
+                                                                                    filter_sigma = 100, adhist_times = 2)
 
-                if (update_template == True) and rotation == 0:
-                    polar_pattern_template, polar_pattern_template_longer, r_template, theta_template, extra_radian = genPolar(frame_gray, useful_map, center = centre, template = True,
-                                                                                filter_sigma = 100, adhist_times = 2)
+                else:
+                    rotation, rotated_info = np.nan, None
+                    print('rr is None, rotation set to np.nan')
+                    if self.logger is not None:
+                        self.logger.info('rr is None, rotation set to np.nan')
             else:
                 rotation, rotated_info = np.nan, None
+                print('rr is None, rotation set to np.nan')
                 if self.logger is not None:
                     self.logger.info('rr is None, rotation set to np.nan')
-
             
             self.rotation_results.append(rotation)
             self.results_recorder.write("{},{}\n".format(frame_id, rotation))
             
             # Drawing the frames of visualisation video
-            rotation_plot_arr = self._plot_rotation_curve(idx)
+            rotation_plot_arr = self._plot_rotation_curve(frame_id)
             segmented_frame = self._draw_segmented_area( frame_gray, pupil_map_masked, iris_map_masked, glints_map_masked, visible_map_masked)
             polar_transformed_graph_arr = self._plot_polar_transformed_graph((polar_pattern_template, r_template, theta_template), rotated_info, extra_radian)
             frames_to_draw = (frame_rgb, rotation_plot_arr, segmented_frame, polar_transformed_graph_arr)
             final_output = self._build_final_output_frame(frames_to_draw)
             self.vwriter.writeFrame(final_output)
+
+        return refer_frame, has_refer
             
 
     def _plot_rotation_curve(self, idx, y_lim = (-4, 4)):
-        fig, ax = plt.subplots( figsize=(3.2,2.4)) #width, height 
-        
-        try:
-            if idx < self.time_display:    
-                ax.plot(np.arange(0, idx), self.rotation_results[0:idx], color = "b", label = "DeepVOG 3D")
-                ax.set_xlim(0,self.time_display)
-            else:
-                ax.plot(np.arange(idx- self.time_display, idx), self.rotation_results[idx-self.time_display:idx], color = "b", label = "DeepVOG 3D")
-                ax.set_xlim(idx-self.time_display, idx)
-            ax.legend()
-            ax.set_ylim(y_lim[0],y_lim[1])
-            ax.set_yticks(np.arange(y_lim[0],y_lim[1]))
-            plt.tight_layout()
-        except:
-            pass  
+        #fig, ax = plt.subplots( figsize=(3.2,2.4)) #width, height
+
+        fig = Figure(figsize=(3.2,2.4))
+        canvas = FigureCanvas(fig)
+        ax = fig.subplots()
+
+        if idx < self.time_display:
+            ax.plot(np.arange(0, idx), self.rotation_results[0:idx], color = "b", label = "DeepVOG 3D")
+            ax.set_xlim(0,self.time_display)
+        else:
+            ax.plot(np.arange(idx- self.time_display, idx), self.rotation_results[idx-self.time_display:idx], color = "b", label = "DeepVOG 3D")
+            ax.set_xlim(idx-self.time_display, idx)
+        ax.legend()
+        ax.set_ylim(y_lim[0],y_lim[1])
+        ax.set_yticks(np.arange(y_lim[0],y_lim[1]))
+        plt.tight_layout()
+
         fig.canvas.draw()
         w,h = fig.canvas.get_width_height()
-        buf = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)/255
-        buf.shape = (h, w, 3)
-        plt.close()
+        buf = (np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8)/255).reshape(h,w,3)
+
         return buf
             
     def _draw_segmented_area(self, frame_gray, pupil_map_masked, iris_map_masked, glints_map_masked, visible_map_masked):
         # Plot segmented area
-        fig, ax = plt.subplots(figsize=(3.2,2.4))
+        #fig, ax = plt.subplots(figsize=(3.2,2.4))
+        fig = Figure(figsize=(3.2,2.4))
+        canvas = FigureCanvas(fig)
+        ax = fig.subplots()
         ax.imshow(frame_gray, vmax=1, vmin=0, cmap="gray")
         ax.imshow(visible_map_masked, cmap="autumn", vmax=1, vmin=0, alpha = 0.2)
         ax.imshow(iris_map_masked, cmap="GnBu", vmax=1, vmin=0, alpha = 0.2)
         ax.imshow(pupil_map_masked, cmap="hot", vmax=1, vmin=0, alpha = 0.2)
         ax.imshow(glints_map_masked, cmap="OrRd", vmax=1, vmin=0, alpha = 0.2)
         ax.set_axis_off()
-        plt.tight_layout()
+        fig.tight_layout()
         fig.canvas.draw()
+
         w,h = fig.canvas.get_width_height()
-        buf = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)/255
-        buf.shape = (h, w, 3)
-        plt.close()
+        buf = (np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8)/255).reshape(h,w,3)
         return buf
 
     def _plot_polar_transformed_graph(self, template_info, rotated_info, extra_radian ):
@@ -394,19 +499,22 @@ class Visualizer(gaze_inferer):
         theta_longer = np.rad2deg(theta) - np.rad2deg((theta.max()-theta.min() )/2)
         theta_shorter = np.rad2deg(theta_rotated) - np.rad2deg((theta_rotated.max() - theta_rotated.min())/2)
         theta_extra = np.rad2deg(extra_radian)
-        
+
         # Plotting
-        fig, ax = plt.subplots(2, figsize=(3.2,2.4))
+        #fig, ax = plt.subplots(2, figsize=(3.2,2.4))
+        fig = Figure(figsize=(3.2,2.4))
+        canvas = FigureCanvas(fig)
+        ax = fig.subplots(2)
+
         ax[0].imshow(polar_pattern, cmap="gray", extent=(theta_shorter.min(), theta_shorter.max(), r.max(), r.min()), aspect='auto')
         ax[0].set_title("Template")
         ax[1].imshow(polar_pattern_rotated, cmap="gray", extent=(theta_shorter.min(), theta_shorter.max(), r_rotated.max(), r_rotated.min()), aspect='auto')
         ax[1].set_title("Rotated pattern")
-        plt.tight_layout()
+        fig.tight_layout()
         fig.canvas.draw()
+
         w,h = fig.canvas.get_width_height()
-        buf = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)/255
-        buf.shape = (h, w, 3)
-        plt.close()
+        buf = (np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8)/255).reshape(h,w,3)
         return buf
 
     def _build_final_output_frame(self, frames_to_draw):
