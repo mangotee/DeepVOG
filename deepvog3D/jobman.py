@@ -1,10 +1,11 @@
 import os
 from .model3D.DeepVOG3D_model import load_DeepVOG3D
-from .inferer import gaze_inferer
+#from .inferer import gaze_inferer
+from .inferer2 import gaze_inferer
 from ast import literal_eval
 from .utils import csv_reader
 from .deepvog_torsion.torsion_wraper import torsional_inference
-from .visualisation import Visualizer
+#from .visualisation import Visualizer
 
 class deepvog_jobman_CLI(object):
     def __init__(self, gpu_num, flen, ori_video_shape, sensor_size, batch_size, visual_save_path = None):
@@ -33,13 +34,15 @@ class deepvog_jobman_CLI(object):
         inferer.save_eyeball_model(output_json_path) 
 
     def infer(self, eyeball_model_path, video_scr, record_path, print_prefix=""):
-        inferer = Visualizer(self.model, self.flen, self.ori_video_shape, self.sensor_size)
+        #inferer = Visualizer(self.model, self.flen, self.ori_video_shape, self.sensor_size)
+        inferer = gaze_inferer(self.model, self.flen, self.ori_video_shape, self.sensor_size)
         inferer.load_eyeball_model(eyeball_model_path)
         inferer.predict( video_scr, record_path, batch_size=self.batch_size, print_prefix=print_prefix, mode = "gaze", output_vis_path = self.visual_save_path)
 
     def torsion(self, video_dir, output_dir, print_prefix=""):
         # call the function to do torsional tracking
-        inferer = Visualizer(self.model, self.flen, self.ori_video_shape, self.sensor_size)
+        #inferer = Visualizer(self.model, self.flen, self.ori_video_shape, self.sensor_size)
+        inferer = gaze_inferer(self.model, self.flen, self.ori_video_shape, self.sensor_size)
         inferer.predict(video_dir, output_dir, batch_size=self.batch_size, print_prefix=print_prefix, mode = "torsion", output_vis_path = self.visual_save_path)
 
 class deepvog_jobman_table_CLI(deepvog_jobman_CLI):
@@ -90,6 +93,7 @@ class deepvog_jobman_TUI(deepvog_jobman_CLI):
         
         os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID" 
         os.environ["CUDA_VISIBLE_DEVICES"]=str(gpu_num)
+        from deepvog3D.model.DeepVOG_model import load_DeepVOG
         self.model = load_DeepVOG()
         self.flen = float(flen)
         self.ori_video_shape = literal_eval(ori_video_shape)

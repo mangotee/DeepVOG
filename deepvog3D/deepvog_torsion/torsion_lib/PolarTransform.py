@@ -34,7 +34,7 @@ def polarTransform(img, data, origin=None):
     x, y = data
     
     if origin is None:
-        origin = (nx//2, ny//2)
+        origin = (img.shape[0]//2, img.shape[1]//2)
     x = x - origin[0]
     y = y - origin[1]
 #
