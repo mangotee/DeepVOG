@@ -6,6 +6,9 @@ from keras.models import load_model
 import keras.backend as K
 import numpy as np
 import os
+
+from tensorflow.python.framework.errors_impl import ResourceExhaustedError
+
 from .CheckEllipse import computeEllipseConfidence
 from .eyefitter import SingleEyeFitter
 from .utils import save_json, load_json, convert_vec2angle31
@@ -183,8 +186,26 @@ class gaze_inferer:
         for idx, frame in enumerate(vreader.nextFrame()):
             X_batch[idx, :, :, :] = preprocess_image(frame, shape_correct)
 
+        print("{} elements were loaded into memory.".format(X_batch.shape[0]))
+
         # predict batch-wise on GPU
-        Y_batch = self.model.predict(X_batch, batch_size=batch_size)
+        print("Infering data (using batch size {})...".format(batch_size))
+        while True:
+            try:
+                Y_batch = self.model.predict(X_batch, batch_size=batch_size)
+                break
+            except ResourceExhaustedError:
+                if batch_size > 1:
+                    print("Batch size {} is too large! (causing OOM error)".format(batch_size))
+                    batch_size = int(batch_size/2)
+                    print("Batch size is reduced to {}".format(batch_size))
+                else:
+                    raise Exception("Minimal batch size is too large.")
+
+
+        print("Inference done.")
+
+        print("Results are evaluated and written..."+ (" (including visualization)" if do_visualization else ""))
 
         # perform postprocessing
         if (mode == "gaze"):
@@ -194,7 +215,9 @@ class gaze_inferer:
                 vid_frames = np.around(X_batch * 255).astype(np.int)
                 vid_frame_shape_2d = (vid_frames.shape[1], vid_frames.shape[2])
 
+
             for frame_id, (X_i, Y_i) in enumerate(zip(X_batch, Y_batch)):
+                print("Processing {}%".format(int((frame_id+1)*100. / len(X_batch))),end="\r")
                 pred = Y_i[:, :, 0]
                 _, _, _, _, ellipse_info = self.eyefitter.unproject_single_observation(pred)
                 (rr, cc, centre, w, h, radian, ellipse_confidence) = ellipse_info
@@ -236,6 +259,7 @@ class gaze_inferer:
                         vid_frame = np.stack((vid_frame[:, :, 0],) * 3, axis=-1)
                         self.vwriter.writeFrame(vid_frame)
 
+            print("Processing done.")
         # put former "self._infer_torsion_batch" inline
         elif (mode == "torsion"):
             # start with unknown reference == -1
@@ -246,6 +270,7 @@ class gaze_inferer:
                 = None, None, None, None, None
 
             for frame_id, (X_i, Y_i) in enumerate(zip(X_batch, Y_batch)):
+                print("Processing {}%".format(int((frame_id+1)*100. / len(X_batch))),end="\r")
                 pred_masked = np.ma.masked_where(Y_i < 0.5, Y_i)
                 # Initialize frames and maps
                 frame = img_as_float(X_i)  # frame ~ (240, 320, 1)
@@ -298,6 +323,7 @@ class gaze_inferer:
                     final_output = build_final_output_frame(frames_to_draw)
                     self.vwriter.writeFrame(final_output)
 
+            print("Processing done.")
         else:
             # dead code
             pass
