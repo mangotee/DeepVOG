@@ -1,36 +1,25 @@
-import skvideo.io as skv
-from skimage.color import rgb2gray
-from skimage.transform import resize
-from skimage.draw import ellipse_perimeter, line, circle_perimeter, line_aa
-from keras.models import load_model
-import keras.backend as K
-import numpy as np
+import logging
 import os
 
+import matplotlib.pyplot as plt
+import numpy as np
+import skvideo.io as skv
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+from matplotlib.figure import Figure
+from skimage import img_as_float
+from skimage.color import rgb2gray
+from skimage.draw import line, circle_perimeter
+from skimage.transform import resize
+from skvideo.utils import rgb2gray
 from tensorflow.python.framework.errors_impl import ResourceExhaustedError
 
-from .CheckEllipse import computeEllipseConfidence
-from .eyefitter import SingleEyeFitter
-from .utils import save_json, load_json, convert_vec2angle31
-import logging
-from skimage import img_as_float
-from .inferer import gaze_inferer
-from skimage.draw import ellipse_perimeter, line, circle_perimeter, line_aa
+from .deepvog_torsion.torsion_lib.CrossCorrelation import genPolar, findTorsion
+from .deepvog_torsion.torsion_lib.Segmentation import getSegmentation_fromDL
+from .deepvog_torsion.torsion_lib.draw_ellipse import fit_ellipse
 from .eyefitter import SingleEyeFitter
 from .unprojection import reproject
 from .utils import convert_vec2angle31
-import skvideo.io as skv
-import numpy as np
-import logging
-import matplotlib.pyplot as plt
-from skimage import img_as_float
-from skvideo.utils import rgb2gray
-from .deepvog_torsion.torsion_lib.Segmentation import getSegmentation_fromDL
-from .deepvog_torsion.torsion_lib.draw_ellipse import fit_ellipse
-from .deepvog_torsion.torsion_lib.CrossCorrelation import genPolar, findTorsion
-
-from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
-from matplotlib.figure import Figure
+from .utils import save_json, load_json
 
 """
 Ensure video has:
@@ -431,7 +420,7 @@ def preprocess_image(img, resizing):
 def plot_rotation_curve(idx, time_display, rotation_results, y_lim=(-4, 4)):
     # fig, ax = plt.subplots( figsize=(3.2,2.4)) #width, height
 
-    fig = Figure(figsize=(3.2, 2.4))
+    fig = Figure(figsize=(3.2, 2.4),dpi=100)
     canvas = FigureCanvas(fig)
     ax = fig.subplots()
 
@@ -458,7 +447,7 @@ def draw_segmented_area(frame_gray, pupil_map_masked, iris_map_masked, glints_ma
                         visible_map_masked):
     # Plot segmented area
     # fig, ax = plt.subplots(figsize=(3.2,2.4))
-    fig = Figure(figsize=(3.2, 2.4))
+    fig = Figure(figsize=(3.2, 2.4),dpi=100)
     canvas = FigureCanvas(fig)
     ax = fig.subplots()
     ax.imshow(frame_gray, vmax=1, vmin=0, cmap="gray")
@@ -489,7 +478,7 @@ def plot_polar_transformed_graph(template_info, rotated_info, extra_radian):
 
     # Plotting
     # fig, ax = plt.subplots(2, figsize=(3.2,2.4))
-    fig = Figure(figsize=(3.2, 2.4))
+    fig = Figure(figsize=(3.2, 2.4),dpi=100)
     canvas = FigureCanvas(fig)
     ax = fig.subplots(2)
 
