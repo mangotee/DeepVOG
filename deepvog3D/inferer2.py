@@ -79,7 +79,7 @@ class gaze_inferer:
             print_prefix (str): Printing out identifier in case you need
         """
         video_name_root, ext, vreader, (
-            fitvid_m, fitvid_w, fitvid_h, fitvid_channels), shape_correct, image_scaling_factor = get_video_info(
+            fitvid_m, fitvid_w, fitvid_h, fitvid_channels), shape_correct, image_scaling_factor, fps = get_video_info(
             video_src)
 
         # Correct eyefitter parameters in accord with the image resizing
@@ -141,16 +141,26 @@ class gaze_inferer:
         """
 
         do_visualization = bool(output_vis_path)
-
-        video_name_root, ext, vreader, (infervid_m, infervid_w, infervid_h,
-                                        infervid_channels), shape_correct, image_scaling_factor = get_video_info(
-            video_src)
+        
+        # print('File exists: %s (%s)'%(str(os.path.exists(video_src)),video_src))
+        video_name_root, ext, vreader, (infervid_m, infervid_w, infervid_h, infervid_channels), shape_correct, image_scaling_factor, fps = get_video_info(video_src)
+        print('Video: %s'%video_src)
+        print('This video has %d frames.'%infervid_m)
 
         # prepare to write result in csv file(path = output_record)
         self.results_recorder = open(output_record, "w")
         if do_visualization:
-            self.vwriter = skv.FFmpegWriter(output_vis_path)
-
+            inputdict={'-r': str(fps)}
+            outputdict={'-vcodec': 'libx264',
+                        '-pix_fmt': 'yuv420p',
+                        '-r': str(fps), # set output framerate identical to input video
+                        '-crf': '15' # set output quality (crf = Constant Rate Factor) high enough to still see iris patterns (empirically chosen)
+                        }
+            self.vwriter = skv.FFmpegWriter(output_vis_path,
+                                            inputdict=inputdict,
+                                            outputdict=outputdict)
+        
+        # initialize csv writers for gaze or torsion estimation
         if (mode == "gaze"):
             # Check if the eyeball model is imported
             self._check_eyeball_model_exists()
@@ -164,163 +174,245 @@ class gaze_inferer:
         elif (mode == "torsion"):
             self.results_recorder.write("frame, rotation\n")
             self.rotation_results = []
+            self.current_iris_rotation = 0.0
+            self.torsion_template_available = False
+            self.torsion_template_offset = 0.0
+            self.torsion_template_frame_id_global = 0
+            self.torsion_template_polar_pattern = None
+            self.torsion_template_polar_pattern_longer = None
+            self.torsion_template_r = [-180.0,180.0]
+            self.torsion_template_theta  = 90.0
+            self.torsion_template_extra_radian = 0.0
             if do_visualization:
                 self.time_display = 150  # range of frame when plotting graph
 
         else:
             raise Exception("Unknown mode {}".format(mode))
-
-        # load frames into memory
-        X_batch = np.zeros((infervid_m, 240, 320, 1))
-        for idx, frame in enumerate(vreader.nextFrame()):
-            X_batch[idx, :, :, :] = preprocess_image(frame, shape_correct)
-
-        print("{} elements were loaded into memory.".format(X_batch.shape[0]))
-
-        # predict batch-wise on GPU
-        print("Infering data (using batch size {})...".format(batch_size))
-        while True:
-            try:
-                Y_batch = self.model.predict(X_batch, batch_size=batch_size)
-                break
-            except ResourceExhaustedError:
-                if batch_size > 1:
-                    print("Batch size {} is too large! (causing OOM error)".format(batch_size))
-                    batch_size = int(batch_size/2)
-                    print("Batch size is reduced to {}".format(batch_size))
-                else:
-                    raise Exception("Minimal batch size is too large.")
-
-
-        print("Inference done.")
-
-        print("Results are evaluated and written..."+ (" (including visualization)" if do_visualization else ""))
-
-        # perform postprocessing
-        if (mode == "gaze"):
-            # put former "self._infer_batch" inline
-
-            if do_visualization:
-                vid_frames = np.around(X_batch * 255).astype(np.int)
-                vid_frame_shape_2d = (vid_frames.shape[1], vid_frames.shape[2])
-
-
-            for frame_id, (X_i, Y_i) in enumerate(zip(X_batch, Y_batch)):
-                print("Processing {}%".format(int((frame_id+1)*100. / len(X_batch))),end="\r")
-                pred = Y_i[:, :, 0]
-                _, _, _, _, ellipse_info = self.eyefitter.unproject_single_observation(pred)
-                (rr, cc, centre, w, h, radian, ellipse_confidence) = ellipse_info
-
+        
+        
+        frames_loaded_counter = 0
+        frame_id_global = -1
+        while frames_loaded_counter < infervid_m:
+            
+            # quick debugging 
+            # uncomment to run full video
+            #if frames_loaded_counter > 500:
+            #    break
+            
+            # load frames into memory
+            X_batch = np.zeros((batch_size, 240, 320, 1))
+            counter = 0
+            for idx, frame in enumerate(vreader.nextFrame()):
+                X_batch[counter, :, :, :] = preprocess_image(frame, shape_correct)
+                frames_loaded_counter += 1
+                counter += 1
+                if counter == batch_size:
+                    break
+            # if we reached the end of the video and there weren't enough frame to fill the batch
+            if counter < batch_size:
+                # reduce the size of this batch
+                X_batch = X_batch[0:counter, :, :, :]
+    
+            # predict batch-wise on GPU
+            while True:
+                try:
+                    Y_batch = self.model.predict(X_batch, batch_size=batch_size)
+                    break
+                # catching batch_size that exceeds the GPU VRAM
+                except ResourceExhaustedError:
+                    if batch_size > 1:
+                        print("Batch size {} is too large! (causing OOM error)".format(batch_size))
+                        batch_size = int(batch_size/2)
+                        print("Batch size is reduced to {}".format(batch_size))
+                    else:
+                        raise Exception("Minimal batch size is too large.")
+                # catching batch_size that exceeds the system RAM (unlikely since we now work on )
+                except MemoryError:
+                    print("The video or batch size is too large.")
+                    print("Inference and/or pre-allocation of the results array exceeds installed RAM memory.")
+                    break
+            
+            # perform postprocessing
+            if (mode == "gaze"):
+                # put former "self._infer_batch" inline
+                
                 if do_visualization:
-                    vid_frame = vid_frames[frame_id]
-
-                if centre is not None:
-                    p_list, n_list, _, consistence = self.eyefitter.gen_consistent_pupil()
-                    p1, n1 = p_list[0], n_list[0]
-                    px, py, pz = p1[0, 0], p1[1, 0], p1[2, 0]
-                    x, y = convert_vec2angle31(n1)
-                    positions = (px, py, pz, centre[0], centre[1])  # Pupil 3D positions and 2D projected positions
-                    gaze_angles = (x, y)  # horizontal and vertical gaze angles
-                    inference_confidence = (ellipse_confidence, consistence)
-                    self.results_recorder.write("%d,%f,%f,%f,%f,%f,%f\n" % (frame_id + 1, centre[0], centre[1],
-                                                                            x, y,
-                                                                            ellipse_confidence, consistence))
+                    vid_frames = np.around(X_batch * 255).astype(np.int)
+                    vid_frame_shape_2d = (vid_frames.shape[1], vid_frames.shape[2])
+                    
+        
+                for frame_id, (X_i, Y_i) in enumerate(zip(X_batch, Y_batch)):
+                    frame_id_global = frames_loaded_counter - batch_size + frame_id
+                    #print("Processing {}%".format(int((frame_id+1)*100. / len(X_batch))),end="\r")
+                    pred = Y_i[:, :, 0]
+                    _, _, _, _, ellipse_info = self.eyefitter.unproject_single_observation(pred)
+                    (rr, cc, centre, w, h, radian, ellipse_confidence) = ellipse_info
+                    
                     if do_visualization:
-                        # # Code below is for drawing video
-                        ellipse_centre_np = np.array(centre)
-                        projected_eye_centre = reproject(self.eyefitter.eye_centre,
-                                                         self.eyefitter.focal_length)  # shape (2,1)
-                        # The line below is for translation from camera coordinate system (centred at image centre)
-                        # to numpy's indexing frame. You substrate the vector by the half of the video's 2D shape. Col = x-axis,
-                        # Row = y-axis
-                        projected_eye_centre += np.array(vid_frame_shape_2d).T.reshape(-1, 1) / 2
-
-                        vid_frame = draw_vis_on_frame(vid_frame, vid_frame_shape_2d, ellipse_info,
-                                                      ellipse_centre_np,
-                                                      projected_eye_centre, gaze_vec=n1)
-                        self.vwriter.writeFrame(vid_frame)
-                else:
-                    positions, gaze_angles, inference_confidence = None, None, None
-                    self.results_recorder.write("%d,%f,%f,%f,%f,%f,%f\n" % (frame_id + 1, np.nan, np.nan,
-                                                                            np.nan, np.nan,
-                                                                            np.nan, np.nan))
-                    if do_visualization:
-                        vid_frame = np.stack((vid_frame[:, :, 0],) * 3, axis=-1)
-                        self.vwriter.writeFrame(vid_frame)
-
-            print("Processing done.")
-        # put former "self._infer_torsion_batch" inline
-        elif (mode == "torsion"):
-            # start with unknown reference == -1
-            ref_frame = -1
-
-            # instantiate vars to avoid errors with unset vars
-            polar_pattern_template, polar_pattern_template_longer, r_template, theta_template, extra_radian \
-                = None, None, None, None, None
-
-            for frame_id, (X_i, Y_i) in enumerate(zip(X_batch, Y_batch)):
-                print("Processing {}%".format(int((frame_id+1)*100. / len(X_batch))),end="\r")
-                pred_masked = np.ma.masked_where(Y_i < 0.5, Y_i)
-                # Initialize frames and maps
-                frame = img_as_float(X_i)  # frame ~ (240, 320, 1)
-                frame_gray = rgb2gray(frame)[0, :, :, 0]  # frame_gray ~ (240, 320)
-
-                frame_rgb = np.zeros((frame.shape[0], frame.shape[1], 3))  # frame_rgb ~ (240, 320, 3)
-                frame_rgb[:, :, :] = frame_gray.reshape(frame_gray.shape[0], frame_gray.shape[1], 1)
-
-                useful_map, (pupil_map, _, _, _) = getSegmentation_fromDL(Y_i)
-                _, (pupil_map_masked, iris_map_masked, glints_map_masked, visible_map_masked) = getSegmentation_fromDL(
-                    pred_masked)
-                rr, _, centre, _, _, _, _, _ = fit_ellipse(pupil_map, 0.5)
-
-                if ref_frame > -1:
-                    # we have already a valid template
+                        vid_frame = vid_frames[frame_id]
+                        
                     if centre is not None:
-                        rotation, rotated_info, _ = findTorsion(polar_pattern_template_longer, frame_gray, useful_map,
-                                                                center=centre, filter_sigma=100, adhist_times=2)
+                        p_list, n_list, _, consistence = self.eyefitter.gen_consistent_pupil()
+                        p1, n1 = p_list[0], n_list[0]
+                        px, py, pz = p1[0, 0], p1[1, 0], p1[2, 0]
+                        x, y = convert_vec2angle31(n1)
+                        positions = (px, py, pz, centre[0], centre[1])  # Pupil 3D positions and 2D projected positions
+                        gaze_angles = (x, y)  # horizontal and vertical gaze angles
+                        inference_confidence = (ellipse_confidence, consistence)
+                        self.results_recorder.write("%d,%f,%f,%f,%f,%f,%f\n" % (frame_id_global + 1, centre[0], centre[1],
+                                                                                x, y,
+                                                                                ellipse_confidence, consistence))
+                        if do_visualization:
+                            # # Code below is for drawing video
+                            ellipse_centre_np = np.array(centre)
+                            projected_eye_centre = reproject(self.eyefitter.eye_centre,
+                                                             self.eyefitter.focal_length)  # shape (2,1)
+                            # The line below is for translation from camera coordinate system (centred at image centre)
+                            # to numpy's indexing frame. You substrate the vector by the half of the video's 2D shape. Col = x-axis,
+                            # Row = y-axis
+                            projected_eye_centre += np.array(vid_frame_shape_2d).T.reshape(-1, 1) / 2
+                            
+                            vid_frame = draw_vis_on_frame(vid_frame, vid_frame_shape_2d, ellipse_info,
+                                                          ellipse_centre_np,
+                                                          projected_eye_centre, gaze_vec=n1)
+                            self.vwriter.writeFrame(vid_frame)
                     else:
-                        # skip this frame as reference
-                        rotation = np.nan
-                        rotated_info = None
-                else:
-                    # we need to check whether this is a valid template
-                    if centre is None:
-                        # skip this frame as reference
-                        rotation = np.nan
-                        rotated_info = None
+                        positions, gaze_angles, inference_confidence = None, None, None
+                        self.results_recorder.write("%d,%f,%f,%f,%f,%f,%f\n" % (frame_id_global + 1, np.nan, np.nan,
+                                                                                np.nan, np.nan,
+                                                                                np.nan, np.nan))
+                        if do_visualization:
+                            vid_frame = np.stack((vid_frame[:, :, 0],) * 3, axis=-1)
+                            self.vwriter.writeFrame(vid_frame)
+                            
+                print("\rProcessing (%0.2f\%, frame %d of %d)."%(100.0*frame_id_global/infervid_m,frame_id_global,infervid_m),end='\r')
+                
+            # put former "self._infer_torsion_batch" inline
+            elif (mode == 'torsion'):
+                
+                for frame_id, (X_i, Y_i) in enumerate(zip(X_batch, Y_batch)):
+                    frame_id_global += 1 
+                    
+                    # binarize all segmentations (pupil, iris, glints, eye, background)
+                    pred_masked = np.ma.masked_where(Y_i < 0.5, Y_i)
+                    
+                    # Initialize frames and maps: int->float, rgb->gray
+                    frame = img_as_float(X_i)  # frame ~ (240, 320, 1)
+                    frame_gray = rgb2gray(frame)[0, :, :, 0]  # frame_gray ~ (240, 320)
+                    
+                    frame_rgb = np.zeros((frame.shape[0], frame.shape[1], 3))  # frame_rgb ~ (240, 320, 3)
+                    frame_rgb[:, :, :] = frame_gray.reshape(frame_gray.shape[0], frame_gray.shape[1], 1)
+                    
+                    # extract iris and pupil regions, fit pupil ellipse
+                    useful_map, (pupil_map, _, _, _) = getSegmentation_fromDL(Y_i)
+                    _, (pupil_map_masked, iris_map_masked, glints_map_masked, visible_map_masked) = getSegmentation_fromDL(
+                        pred_masked)
+                    rr, _, centre, _, _, _, _, _ = fit_ellipse(pupil_map, 0.5)
+                    
+                    if self.torsion_template_available: #'polar_pattern_template_longer' is not None: # ref_frame > -1:
+                        # we have already a valid template
+                        # if pupil detection failed, assume torsion as nan, otherwise compute torsion
+                        if centre is None:
+                            # pupil detection failed
+                            # skip this frame as reference
+                            rotation = np.nan
+                            rotated_info = None
+                            self.current_iris_rotation = rotation
+                        else:
+                            # pupil detected --> compute torsion as well
+                            rotation, rotated_info, corr, quality_measures = findTorsion(self.torsion_template_polar_pattern_longer, 
+                                                                    frame_gray, 
+                                                                    useful_map,
+                                                                    center=centre, 
+                                                                    filter_sigma=100, 
+                                                                    adhist_times=2)
+                            #print('Template rotation before template update: %0.2f'%self.current_iris_rotation)
+                            self.current_iris_rotation = self.torsion_template_offset + rotation
+                            
+                            # updating the template necessary?
+                            if ( (quality_measures['polar_coverage_percent'] > self.torsion_template_quality_measures['polar_coverage_percent']) & (quality_measures['polar_xgradient_sum'] > self.torsion_template_quality_measures['polar_xgradient_sum']) ):
+                                self.updateTorsionTemplate(frame_id_global, frame_gray, useful_map, centre)
                     else:
-                        # we have found a valid reference frame
-                        ref_frame = frame_id
-                        # generate template
-                        polar_info = genPolar(frame_gray, useful_map, center=centre, template=True,
-                                              filter_sigma=100, adhist_times=2)
-                        polar_pattern_template, polar_pattern_template_longer, r_template, theta_template, extra_radian = polar_info
-                        rotated_info = (polar_pattern_template, r_template, theta_template)
-                        rotation = 0
-
-                self.rotation_results.append(rotation)
-                self.results_recorder.write("{},{}\n".format(frame_id, rotation))
-
-                if do_visualization:
-                    # Drawing the frames of visualisation video
-                    rotation_plot_arr = plot_rotation_curve(frame_id, self.time_display, self.rotation_results)
-                    segmented_frame = draw_segmented_area(frame_gray, pupil_map_masked, iris_map_masked,
-                                                          glints_map_masked, visible_map_masked)
-                    polar_transformed_graph_arr = plot_polar_transformed_graph(
-                        (polar_pattern_template, r_template, theta_template), rotated_info, extra_radian)
-                    frames_to_draw = (frame_rgb, rotation_plot_arr, segmented_frame, polar_transformed_graph_arr)
-                    final_output = build_final_output_frame(frames_to_draw)
-                    self.vwriter.writeFrame(final_output)
-
-            print("Processing done.")
-        else:
-            # dead code
-            pass
-
+                        # there is no template yet (beginning of video)
+                        # we need to check whether this is a valid template (pupil detection successful?)
+                        if centre is None:
+                            # no pupil detected --> can't be used as template either
+                            # skip this frame as reference, wait for first frame in video with a detectable pupil
+                            rotation = np.nan
+                            rotated_info = None
+                            self.current_iris_rotation = rotation
+                        else:
+                            # we have found a valid reference frame
+                            #ref_frame = frame_id
+                            # store global index of this image/frame in the video
+                            self.updateTorsionTemplate(frame_id_global, frame_gray, useful_map, centre)
+                            rotation = self.current_iris_rotation
+                            rotated_info = self.torsion_template_rotated_info
+                            extra_radian = self.torsion_template_extra_radian
+                            
+                    self.rotation_results.append(self.current_iris_rotation)
+                    self.results_recorder.write("{},{}\n".format(frame_id_global, self.current_iris_rotation))
+                    
+                    if do_visualization:
+                        # Drawing the frames of visualisation video
+                        # render the torsional rotation curve (top-right subplot)
+                        rotation_plot_arr = plot_rotation_curve(frame_id_global, self.time_display, self.rotation_results)
+                        # render the segmentation result (bottom-left subplot)
+                        segmented_frame = draw_segmented_area(frame_gray, pupil_map_masked, iris_map_masked,
+                                                              glints_map_masked, visible_map_masked)
+                        # render the polar transformation of template vs rotated iris patterns (bottom-right)
+                        polar_transformed_graph_arr = plot_polar_transformed_graph(
+                                                            (self.torsion_template_polar_pattern, 
+                                                             self.torsion_template_r, 
+                                                             self.torsion_template_theta), 
+                                                            rotated_info, 
+                                                            extra_radian)
+                        frames_to_draw = (frame_rgb, rotation_plot_arr, segmented_frame, polar_transformed_graph_arr)
+                        final_output = build_final_output_frame(frames_to_draw)
+                        self.vwriter.writeFrame(final_output)
+                        
+                    print("\rProcessing (%0.2f%%, frame %d of %d)."%(100.0*frame_id_global/infervid_m,frame_id_global,infervid_m),end='\r')
+            else:
+                # dead code
+                pass
+            # end: if mode==gaze/torsion/else
+        # end: while frame_counter < infervid_m:
+        print("Processing done. Writing results.")
         self.results_recorder.close()
         if output_vis_path:
             self.vwriter.close()
+    
+    def updateTorsionTemplate(self, frame_id_global, frame_gray, useful_map, centre, strategy='replace'):
+        # generate new template from current gray image 
+        polar_pattern_template, \
+            polar_pattern_template_longer, \
+            r_template, \
+            theta_template, \
+            extra_radian, \
+            quality_measures = genPolar(frame_gray, useful_map, center=centre, template=True,
+                              filter_sigma=100, adhist_times=2, apply_gaussian_noise=True)
+        
+        if strategy == 'replace':
+            #print('Shape of polar_pattern_template: %s'%str(polar_pattern_template.shape))
+            #print(quality_measures)
+            #print('Template rotation after: %0.2f'%self.current_iris_rotation)
+            rotated_info = (polar_pattern_template, r_template, theta_template)
+            # store to internal memory
+            self.torsion_template_available = True
+            self.torsion_template_offset = self.current_iris_rotation # when setting a new template, we store the current accumulated torsion "as is" into offset
+            self.torsion_template_frame_id_global = frame_id_global
+            self.torsion_template_rotated_info = rotated_info
+            self.torsion_template_polar_pattern = polar_pattern_template
+            self.torsion_template_polar_pattern_longer = polar_pattern_template_longer
+            self.torsion_template_extra_radian = extra_radian
+            self.torsion_template_quality_measures = quality_measures
+            self.torsion_template_r = r_template
+            self.torsion_template_theta  = theta_template
+        else:
+            print('Template update strategy "%s" not implemented.')
+            return
 
+    
     def save_eyeball_model(self, path):
         if (self.eyefitter.eye_centre is None) or (self.eyefitter.aver_eye_radius is None):
             print("3D eyeball model not found")
@@ -329,25 +421,25 @@ class gaze_inferer:
             save_dict = {"eye_centre": self.eyefitter.eye_centre.tolist(),
                          "aver_eye_radius": self.eyefitter.aver_eye_radius}
             save_json(path, save_dict)
-
+            
     def load_eyeball_model(self, path):
         loaded_dict = load_json(path)
         if (self.eyefitter.eye_centre is None) or (self.eyefitter.aver_eye_radius is None):
             self.eyefitter.eye_centre = np.array(loaded_dict["eye_centre"])
             self.eyefitter.aver_eye_radius = loaded_dict["aver_eye_radius"]
-
+            
         else:
             logging.warning("3D eyeball exists and reloaded")
-
+            
     def _fitting_batch(self, Y_batch):
         for Y_each in Y_batch:
             pred_each = Y_each[:, :, 0]
             _, _, _, _, (_, _, centre, w, h, radian, ellipse_confidence) = self.eyefitter.unproject_single_observation(
                 pred_each)
-
+            
             if (ellipse_confidence > self.confidence_fitting_threshold) and (centre is not None):
                 self.eyefitter.add_to_fitting()
-
+                
     def _infer_batch(self, Y_batch, idx):
         for batch_idx, Y_each in enumerate(Y_batch):
             frame = idx + batch_idx + 1
@@ -382,6 +474,17 @@ class gaze_inferer:
         except AssertionError as e:
             logging.error("You must initialize 3D eyeball parameters first by fit() function")
             raise e
+    
+    def _update_template(self):
+        # e.g. based on template image contrast/sharpness
+        # for a discussion of (basic) methods, see:
+        # https://stackoverflow.com/questions/6646371/detect-which-image-is-sharper
+        
+        # other ideas: continuously reconstruct an optimally sharp iris image (with maximally little occlusion)
+        # e.g. based on LoG-pyramids and HDR merging
+        
+        # current implementation: based on average x-gradient
+        pass
 
 
 def get_video_info(video_src):
@@ -389,9 +492,10 @@ def get_video_info(video_src):
     video_name_root, ext = os.path.splitext(video_name_with_ext)
     vreader = skv.FFmpegReader(video_src)
     m, w, h, channels = vreader.getShape()
+    fps = vreader.inputfps
     image_scaling_factor = np.linalg.norm((240, 320)) / np.linalg.norm((h, w))
     shape_correct = inspectVideoShape(w, h)
-    return video_name_root, ext, vreader, (m, w, h, channels), shape_correct, image_scaling_factor
+    return video_name_root, ext, vreader, (m, w, h, channels), shape_correct, image_scaling_factor, fps
 
 
 def inspectVideoShape(w, h):
@@ -482,12 +586,16 @@ def plot_polar_transformed_graph(template_info, rotated_info, extra_radian):
     canvas = FigureCanvas(fig)
     ax = fig.subplots(2)
 
-    ax[0].imshow(polar_pattern, cmap="gray", extent=(theta_shorter.min(), theta_shorter.max(), r.max(), r.min()),
-                 aspect='auto')
+    ax[0].imshow(polar_pattern, cmap="gray", aspect='auto', vmin=0.0, vmax=1.0,
+                 extent=(theta_shorter.min(), theta_shorter.max(), r.max(), r.min()),
+                 )
     ax[0].set_title("Template")
-    ax[1].imshow(polar_pattern_rotated, cmap="gray",
-                 extent=(theta_shorter.min(), theta_shorter.max(), r_rotated.max(), r_rotated.min()), aspect='auto')
+    ax[0].yaxis.set_visible(False)
+    ax[1].imshow(polar_pattern_rotated, cmap="gray", aspect='auto', vmin=0.0, vmax=1.0,
+                 extent=(theta_shorter.min(), theta_shorter.max(), r_rotated.max(), r_rotated.min())
+                 )
     ax[1].set_title("Rotated pattern")
+    ax[1].yaxis.set_visible(False)
     fig.tight_layout()
     fig.canvas.draw()
 
