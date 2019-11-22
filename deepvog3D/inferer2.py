@@ -285,7 +285,7 @@ class gaze_inferer:
                             vid_frame = np.stack((vid_frame[:, :, 0],) * 3, axis=-1)
                             self.vwriter.writeFrame(vid_frame)
                             
-                print("\rProcessing (%0.2f\%, frame %d of %d)."%(100.0*frame_id_global/infervid_m,frame_id_global,infervid_m),end='\r')
+                print("\rProcessing (%0.2f%%, frame %d of %d)."%(100.0*frame_id_global/infervid_m,frame_id_global,infervid_m),end='\r')
                 
             # put former "self._infer_torsion_batch" inline
             elif (mode == 'torsion'):
