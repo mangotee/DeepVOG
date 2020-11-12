@@ -28,6 +28,7 @@ def index_coords(data, origin=None):
     x -= origin_x
     y -= origin_y
     return x, y
+
 def polarTransform(img, data, origin=None):
     """Reprojects a 3D numpy array ("data") into a polar coordinate system.
     "origin" is a tuple of (x0, y0) and defaults to the center of the image."""
