@@ -53,7 +53,7 @@ ori_vid_shape_help = 'Original and uncropped video shape of your camera output, 
 flen_help = 'Focal length of your camera in mm.'
 gpu_help = 'GPU device number. Default = 0'
 sensor_help = 'Sensor size of your camera digital sensor, height and width in mm. Default = 3.6 4.8'
-batch_help = 'Batch size for forward inference. Default = 512.'
+batch_help = 'Batch size for forward inference. Default = 256.'
 visualisation_help = 'Whether visualize the result or not. call with -v [video_save_path]'
 
 
@@ -68,7 +68,7 @@ parser.add_argument("-f", "--flen", help = flen_help, default = 6, type = float,
 parser.add_argument("-g", "--gpu", help = gpu_help, default= "0", type = str, metavar= ("INT"))
 parser.add_argument("-vs" ,"--vidshape", help = ori_vid_shape_help, default= "(240, 320)", type = str, metavar=("INT,INT"))
 parser.add_argument("-s", "--sensor", help = sensor_help, default= "(3.6, 4.8)", type = str, metavar=("FLOAT,FLOAT"))
-parser.add_argument("-b", "--batchsize", help = batch_help, default= 512, type = int, metavar=("INT"))
+parser.add_argument("-b", "--batchsize", help = batch_help, default= 256, type = int, metavar=("INT"))
 parser.add_argument("-v", "--visualize", help = visualisation_help, default=None, type = str, metavar=("PATH"))
 
 args = parser.parse_args()
@@ -78,7 +78,7 @@ all_modes_list = [args.fit, args.infer, args.torsion, args.table, args.tui]
 cli_modes_list = all_modes_list[0:4]
 num_modes = sum([x is not None for x in all_modes_list])
 if num_modes != 1:
-    parser.error("Exactly one argument from --fit, --infer, --torsion, --table and --tui is requried")
+    parser.error("Exactly one argument from --fit, --infer, --torsion, --table and --tui is required")
     
 else:
 

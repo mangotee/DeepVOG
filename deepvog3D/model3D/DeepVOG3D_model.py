@@ -1,121 +1,179 @@
 import os
 import numpy as np
-from keras.initializers import glorot_uniform
-from keras import layers
-from keras import backend as K
-from keras.layers import Input, Add, Dense, Activation, ZeroPadding2D, BatchNormalization, Flatten, Conv2D, AveragePooling2D, MaxPooling2D, GlobalMaxPooling2D
-from keras.layers import Conv2DTranspose, Concatenate
-from keras.models import Model, load_model
+from skimage.color import rgb2gray
 
-def dice_coef(y_true, y_pred):
-    y_true_f = K.flatten(y_true)
-    y_pred_f = K.flatten(y_pred)
-    intersection = K.sum(y_true_f * y_pred_f)
-    return (2. * intersection + 0.0000001) / (K.sum(y_true_f) + K.sum(y_pred_f) +  0.0000001)
+import torch
+import monai
+from monai.transforms import (
+    AsChannelFirst,
+    AsChannelLast,
+    CastToType,
+    Compose,
+    Lambda,
+    Resize,
+    ResizeWithPadOrCrop,
+    ScaleIntensity,
+    ToTensor,
+    ToNumpy,
+)
+from monai.transforms.compose import Transform
 
-def dice_coef_multilabel(y_true, y_pred, numLabels=4):
-    dice=0
-    for index in range(numLabels):
-        dice -= dice_coef(y_true[:,:,:,index], y_pred[:,:,:,index])
-    return dice
+class Gray2Rgb(Transform):
+    """
+    Converts gray image (a single color channel) to RGB (three color channels, identical to channel 0)
 
-def encoding_block(X, filter_size, filters_num, layer_num, block_type, stage, s = 1, X_skip=0):
-    
-    # defining name basis
-    conv_name_base = 'conv_' + block_type + str(stage) + '_'
-    bn_name_base = 'bn_' + block_type + str(stage)  + '_'
-        
-    ##### MAIN PATH #####
-    for i in np.arange(layer_num)+1:
-        # First component of main path 
-        X = Conv2D(filters_num, filter_size , strides = (s,s), padding = 'same', name = conv_name_base + 'main_' + str(i), kernel_initializer = glorot_uniform())(X)
-        X = BatchNormalization(axis = 3, name = bn_name_base + 'main_' + str(i))(X)
-        if i != layer_num:
-            X = Activation('relu')(X)
+    Args:
+        None
+    """
 
-    X = Activation('relu')(X)
-    
-    # Down sampling layer
-    X_downed = Conv2D(filters_num*2, (2, 2), strides = (2,2), padding = 'valid', name = conv_name_base + 'down', kernel_initializer = glorot_uniform())(X)
-    X_downed = BatchNormalization(axis = 3, name = bn_name_base + 'down')(X_downed)
-    X_downed = Activation('relu')(X_downed)
-    return X, X_downed
+    def __init__(self) -> None:
+        pass
 
-def decoding_block(X, filter_size, filters_num, layer_num, block_type, stage, s = 1, X_jump = 0, up_sampling = True):
-    
-    # defining name basis
-    conv_name_base = 'conv_' + block_type + str(stage) + '_'
-    bn_name_base = 'bn_' + block_type + str(stage)  + '_'
-    
-    # Joining X_jump from encoding side with X_uped
-    if X_jump == 0:
-        X_joined_input = X
-    else:
-        X_joined_input = Concatenate(axis = 3)([X,X_jump])
-    
-    ##### MAIN PATH #####
-    for i in np.arange(layer_num)+1:
-        # First component of main path 
-        X_joined_input = Conv2D(filters_num, filter_size , strides = (s,s), padding = 'same',
-                                name = conv_name_base + 'main_' + str(i), kernel_initializer = glorot_uniform())(X_joined_input)
-        X_joined_input = BatchNormalization(axis = 3, name = bn_name_base + 'main_' + str(i))(X_joined_input)
-        if i != layer_num:
-            X_joined_input = Activation('relu')(X_joined_input)
+    def __call__(self, img: np.ndarray) -> np.ndarray:
+        """
+        Apply the transform to `img`.
+        """
+        if img.ndim == 2:
+            img = np.expand_dims(img, axis=2)
+        if img.shape[-1]==1:
+            img = np.concatenate((img,img,img),axis=2)
+        elif img.shape[-1]==3:
+            pass
+        else:
+            raise ValueError('Input img to Gray2Rgb needs to have 1 or three channels, but not %d.'%(img.shape[-1]))
+        return img
 
+class Rgb2Gray(Transform):
+    """
+    Converts gray image (a single color channel) to RGB (three color channels, identical to channel 0)
 
-    ##### SHORTCUT PATH #### 
-    X_joined_input = Activation('relu')(X_joined_input)
+    Args:
+        None
+    """
+
+    def __init__(self) -> None:
+        pass
+
+    def __call__(self, img: np.ndarray) -> np.ndarray:
+        """
+        Apply the transform to `img`.
+        """
+        if img.ndim == 2:
+            pass
+        elif img.ndim == 3:
+            assert img.shape[2]==3
+            img = rgb2gray(img)
+        else:
+            raise ValueError('Input img to Rgb2Gray needs to have three channels, but not %d.'%(img.shape[-1]))
+        return img
+
+class DeepVOG3DModel:
+    def __init__(self, device="cuda", fn_model_weights=None, 
+                 video_width=320, video_height=240):
+        if fn_model_weights is None:
+            fn_model_weights = 'best_metric_model_dv3d_segmentation2d_dict_withdropout.pth'
+        assert device=="cuda" or device=="cpu"
+        if device=="cuda" and not torch.cuda.is_available():
+            device=="cpu"
+            print('Warning: "cuda" device not available for DeepVOG3DModel. Defaulting to "cpu".')
+        # set up model
+        device = torch.device(device)
+        model = monai.networks.nets.UNet(
+            dimensions=2,
+            in_channels=3,
+            out_channels=4,
+            channels=(16, 32, 64, 128, 256),
+            strides=(2, 2, 2, 2),
+            dropout=0.5,
+            num_res_units=2,
+            ).to(device)
+        # load model weights
+        base_dir = os.path.dirname(__file__)
+        ff_model_weights = os.path.join(base_dir, fn_model_weights)
+        model.load_state_dict(torch.load(ff_model_weights))
+        model.eval()
+        # set up transformation pipeline: forward and inverse
+        sigmoid = torch.nn.Sigmoid()
+        video_shape = (video_height, video_width)
+        if video_shape == (240,320):
+            transforms = Compose(
+                    [
+                        Gray2Rgb(),
+                        AsChannelFirst(),
+                        ScaleIntensity(),
+                        CastToType(np.float32),
+                        ToTensor(),
+                    ]
+                )
+        else:
+            transforms = Compose(
+                    [
+                        Gray2Rgb(),
+                        AsChannelFirst(),
+                        ScaleIntensity(),
+                        Resize(spatial_size=(240,320)), # ResizeWithPadOrCrop
+                        CastToType(np.float32),
+                        ToTensor(),
+                    ]
+                )
+        transforms_inv_seg = Compose(
+                [
+                    Lambda(lambda im: sigmoid(im)),
+                    ToNumpy(),
+                    AsChannelLast(),
+                ]
+            )
+        # if resizing to original shape should be necessary:
+        #    Resize(spatial_size=video_shape), #without resize might be better...
+        # store
+        self.video_shape = video_shape
+        self.fn_model_weights = fn_model_weights
+        self.model = model
+        self.device = device
+        self.transforms = transforms
+        self.transforms_inv_seg = transforms_inv_seg
+
+    def get_model(self):
+        '''
+        Returns
+        -------
+        model: pytorch/monai 3D UNet/VNet model
+            model can handled as any other torch.nn.Module
+
+        '''
+        return self.model
     
-    # Up-sampling layer. At the output layer, up-sampling is disabled and replaced by other stuffs manually
-    if up_sampling == True:
-        X_uped = Conv2DTranspose(filters_num, (2, 2), strides = (2,2), padding = 'valid',
-                                 name = conv_name_base + 'up', kernel_initializer = glorot_uniform())(X_joined_input)
-        X_uped = BatchNormalization(axis = 3, name = bn_name_base + 'up')(X_uped)
-        X_uped = Activation('relu')(X_uped)
-        return X_uped
-    else:
-        return X_joined_input
-        
-# FullVnet
-# Output layers have 3 channels. The first two channels represent two one-hot vectors (pupil and non-pupil)
-# The third layer contains all zeros in all cases (trivial)
-def DeepVOG3D_Net(input_shape = (240, 320, 1), filter_size= (3,3)):
+    def empty_gpu_cache(self):
+        torch.cuda.empty_cache()
     
-    X_input = Input(input_shape)
-    
-    Nh, Nw = input_shape[0], input_shape[1]
-    
-    # Encoding Stream
-    X_jump1, X_out = encoding_block(X = X_input, X_skip = 0, filter_size= filter_size, filters_num= 16,
-                                      layer_num= 1, block_type = "down", stage = 1, s = 1)
-    X_jump2, X_out = encoding_block(X = X_out, X_skip = X_out, filter_size= filter_size, filters_num= 32,
-                                      layer_num= 1, block_type = "down", stage = 2, s = 1)
-    X_jump3, X_out = encoding_block(X = X_out, X_skip = X_out, filter_size= filter_size, filters_num= 64,
-                                      layer_num= 1, block_type = "down", stage = 3, s = 1)
-    X_jump4, X_out = encoding_block(X = X_out, X_skip = X_out, filter_size= filter_size, filters_num= 128,
-                                      layer_num= 1, block_type = "down", stage = 4, s = 1)
-    
-    # Decoding Stream
-    X_out = decoding_block(X = X_out, X_jump = 0, filter_size= filter_size, filters_num= 256, 
-                                 layer_num= 1, block_type = "up", stage = 1, s = 1)
-    X_out = decoding_block(X = X_out, X_jump = X_jump4, filter_size= filter_size, filters_num= 256, 
-                                 layer_num= 1, block_type = "up", stage = 2, s = 1)
-    X_out = decoding_block(X = X_out, X_jump = X_jump3, filter_size= filter_size, filters_num= 128, 
-                                 layer_num= 1, block_type = "up", stage = 3, s = 1)
-    X_out = decoding_block(X = X_out, X_jump = X_jump2, filter_size= filter_size, filters_num= 64, 
-                                 layer_num= 1, block_type = "up", stage = 4, s = 1)
-    X_out = decoding_block(X = X_out, X_jump = X_jump1, filter_size= filter_size, filters_num= 32, 
-                                 layer_num= 1, block_type = "up", stage = 5, s = 1, up_sampling = False)
-    # Output layer operations
-    X_out = Conv2D(filters = 4, kernel_size = (1,1) , strides = (1,1), padding = 'valid',
-                   name = "conv_out", kernel_initializer = glorot_uniform())(X_out)
-    X_out = Activation("sigmoid")(X_out)
-    model = Model(inputs = X_input, outputs = X_out, name='Eye')
-    
-    return model
-    
-def load_DeepVOG3D():
-    base_dir = os.path.dirname(__file__)
-    model = DeepVOG3D_Net(input_shape = (240, 320, 1), filter_size= (10,10))
-    model.load_weights(os.path.join(base_dir, "DeepVOG3D_weights.h5"))
-    return model
+    def predict(self,x):
+        '''
+        Parameters
+        ----------
+        x : np.array of shape (batch_size, height, width, nr_channels)
+            nr_channels can be 
+
+        Returns
+        -------
+        y : np.array of shape (batch_size, height, width, 4)
+            The four channels are (from 0 to 3): pupil, iris, glints, visible_map
+
+        '''
+        # if only a single image, add a mini-batch dimension
+        if x.ndim==3:
+            x = x[None, ...]
+        # for mini-batches, transform, process, and inverse transform
+        x_trans = []
+        for img in x:
+            x_trans.append(self.transforms(img))
+        x_trans = torch.stack(x_trans).to(self.device)
+        # run inference
+        y_tensor = self.model(x_trans)
+        # inverse transform
+        y = self.transforms_inv_seg(y_tensor)
+        # for some reason, the order of axes now is [4, height, width, batch_size] -> swap axes 0 and 3
+        y = np.swapaxes(y,0,3) 
+        return y
+
+def load_DeepVOG3D(video_width=320, video_height=240):
+    return DeepVOG3DModel(video_width=video_width, video_height=video_height)

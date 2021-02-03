@@ -29,7 +29,7 @@ def index_coords(data, origin=None):
     y -= origin_y
     return x, y
 
-def polarTransform(img, data, origin=None):
+def polarTransform(img, data, origin=None, angular_resolution=0.02):
     """Reprojects a 3D numpy array ("data") into a polar coordinate system.
     "origin" is a tuple of (x0, y0) and defaults to the center of the image."""
     x, y = data
@@ -46,7 +46,7 @@ def polarTransform(img, data, origin=None):
 
     # Make a regular (in polar space) grid based on the min and max r & theta
     ny = int(np.round(r.max()-r.min()))
-    nx = int(np.round(360*(1/0.02))) # resolution = 0.02 degree
+    nx = int(np.round(360/angular_resolution)) # resolution in degree (not radians)
     
     r_i = np.linspace(r.min(), r.max(), ny)
     theta_i = np.linspace(0, np.pi*2, nx) 

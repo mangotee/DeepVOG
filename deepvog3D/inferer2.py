@@ -3,6 +3,7 @@ import os
 
 import matplotlib.pyplot as plt
 import numpy as np
+import cv2
 import skvideo.io as skv
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -11,7 +12,6 @@ from skimage.color import rgb2gray
 from skimage.draw import line, circle_perimeter
 from skimage.transform import resize
 from skvideo.utils import rgb2gray
-from tensorflow.python.framework.errors_impl import ResourceExhaustedError
 
 from .deepvog_torsion.torsion_lib.CrossCorrelation import genPolar, findTorsion
 from .deepvog_torsion.torsion_lib.Segmentation import getSegmentation_fromDL
@@ -27,21 +27,34 @@ Ensure video has:
         1. resize or 
         2. crop(not yet implemented)
     2. values of float [0,1]
-    3. grayscale
-
+    3. grayscale or (!) RGB (grayscale not necessary anymore, the network auto-converts input to RGB )
 """
 
-
 class gaze_inferer:
-    def __init__(self, model, flen, ori_video_shape, sensor_size, logger=None):
+    def __init__(self, model, flen, ori_video_shape, sensor_size, logger=None, n_channels_vid=3):
         """
         Initialize necessary parameters and load deep_learning model
-
+        # TODO: adapt the documentation headers
+        
         Args:
-            model: Deep learning model that perform image segmentation. Pre-trained model is provided at https://github.com/pydsgz/DeepVOG/model/DeepVOG_model.py, simply by loading load_DeepVOG() with "DeepVOG_weights.h5" in the same directory. If you use your own model, it should take input of grayscale image (m, 240, 320, 1) with value float [0,1] and output (m, 240, 320, 1) with value float [0,1] where (m, 240, 320, 1) is the pupil map.
-            flen (float): Focal length of camera in mm. You can look it up at the product menu of your camera
-            ori_video_shape (tuple or list or np.ndarray): Original video shape from your camera, (height, width) in pixel. If you cropped the video before, use the "original" shape but not the cropped shape
-            sensor_size (tuple or list or np.ndarray): Sensor size of your camera, (height, width) in mm. For 1/3 inch CMOS sensor, it should be (3.6, 4.8). Further reference can be found in https://en.wikipedia.org/wiki/Image_sensor_format and you can look up in your camera product menu
+            model: Deep learning model that perform image segmentation. 
+                   Pre-trained model is provided at https://github.com/pydsgz/DeepVOG/model/DeepVOG_model.py, 
+                   simply by loading load_DeepVOG() with "DeepVOG_weights.h5" 
+                   in the same directory. If you use your own model, 
+                   it should take input of grayscale image (m, 240, 320, n_channels_vid) 
+                   with value float [0,1] and output (m, 240, 320, n_channels_vid) with 
+                   value float [0,1] where (m, 240, 320, n_channels_vid) is the pupil map.
+            flen (float): Focal length of camera in mm. You can look it up 
+                   at the product menu of your camera
+            ori_video_shape (tuple or list or np.ndarray): Original video shape 
+                   from your camera, (height, width) in pixel. If you cropped 
+                   the video before, use the "original" shape but not the 
+                   cropped shape
+            sensor_size (tuple or list or np.ndarray): Sensor size of your 
+                   camera, (height, width) in mm. For 1/3 inch CMOS sensor, 
+                   it should be (3.6, 4.8). Further reference can be found 
+                   in https://en.wikipedia.org/wiki/Image_sensor_format and 
+                   you can look up in your camera product menu
         """
         # Assertion of shape
         try:
@@ -60,10 +73,11 @@ class gaze_inferer:
         self.flen = flen
         self.ori_video_shape, self.sensor_size = np.array(ori_video_shape).squeeze(), np.array(sensor_size).squeeze()
         self.mm2px_scaling = np.linalg.norm(self.ori_video_shape) / np.linalg.norm(self.sensor_size)
+        self.n_channels_vid = n_channels_vid
 
         self.model = model
         self.logger = logger
-        self.confidence_fitting_threshold = 0.96
+        self.confidence_fitting_threshold = 0.985
         self.eyefitter = SingleEyeFitter(focal_length=self.flen * self.mm2px_scaling,
                                          pupil_radius=2 * self.mm2px_scaling,
                                          initial_eye_z=50 * self.mm2px_scaling)
@@ -89,25 +103,33 @@ class gaze_inferer:
         initial_frame, final_frame = 0, fitvid_m
         num_frames_fit = final_frame - initial_frame
         # Duration not yet implement#
+        # final_batch_idx indicates the frame idx where the final batch starts (eg 64 for a vid with 70 frams @ bs 32)
         final_batch_idx = final_frame - (final_frame % batch_size)
-        X_batch = np.zeros((batch_size, 240, 320, 1))
-        X_batch_final = np.zeros((final_frame % batch_size, 240, 320, 1))
+        X_batch = np.zeros((batch_size, 240, 320, fitvid_channels))
+        X_batch_final = np.zeros((final_frame % batch_size, 240, 320, fitvid_channels))
+        # Run the network inference
         for idx, frame in enumerate(vreader.nextFrame()):
 
             print("\r%sFitting %s (%d%%)" % (print_prefix, video_name_root + ext, (idx / fitvid_m) * 100), end="",
                   flush=True)
             frame_preprocessed = preprocess_image(frame, shape_correct)
             mini_batch_idx = idx % batch_size
+            # accumulate frames into minibatch, for any frame in the video except final minibatch, or first image in new batch
             if ((mini_batch_idx != 0) and (idx < final_batch_idx)) or (idx == 0):
                 X_batch[mini_batch_idx, :, :, :] = frame_preprocessed
+            # enough accumulated - run inference, allocate a new minibatch stack
             elif ((mini_batch_idx == 0) and (idx < final_batch_idx) or (idx == final_batch_idx)):
+                # run deep segmentation (forward pass)
                 Y_batch = self.model.predict(X_batch)
+                # fit ellipses into each frame
                 self._fitting_batch(Y_batch)
                 # self._write_batch(Y_batch) # Just for debugging
-                X_batch = np.zeros((batch_size, 240, 320, 1))
+                X_batch = np.zeros((batch_size, 240, 320, fitvid_channels))
                 X_batch[mini_batch_idx, :, :, :] = frame_preprocessed
+            # accumulate frame into final minibatch
             elif ((idx > final_batch_idx) and (idx != final_frame - 1)):
                 X_batch_final[idx - final_batch_idx, :, :, :] = frame_preprocessed
+            # final minibatch ready for inference
             elif (idx == final_frame - 1):
                 print("\r%sFitting %s (100%%)" % (print_prefix, video_name_root + ext), end="", flush=True)
                 X_batch_final[idx - final_batch_idx, :, :, :] = frame_preprocessed
@@ -146,6 +168,7 @@ class gaze_inferer:
         video_name_root, ext, vreader, (infervid_m, infervid_w, infervid_h, infervid_channels), shape_correct, image_scaling_factor, fps = get_video_info(video_src)
         print('Video: %s'%video_src)
         print('This video has %d frames.'%infervid_m)
+        print('This video has %d color channels.'%infervid_channels)
 
         # prepare to write result in csv file(path = output_record)
         self.results_recorder = open(output_record, "w")
@@ -169,7 +192,7 @@ class gaze_inferer:
             self.eyefitter.focal_length = self.flen * self.mm2px_scaling * image_scaling_factor
             self.eyefitter.pupil_radius = 2 * self.mm2px_scaling * image_scaling_factor
 
-            self.results_recorder.write("frame,pupil2D_x,pupil2D_y,gaze_x,gaze_y,confidence,consistence\n")
+            self.results_recorder.write("frame,pupil2D_x,pupil2D_y,gaze_x,gaze_y,confidence,consistence,pupil_radius_min,pupil_radius_max\n")
 
         elif (mode == "torsion"):
             self.results_recorder.write("frame, rotation\n")
@@ -181,7 +204,11 @@ class gaze_inferer:
             self.torsion_template_polar_pattern = None
             self.torsion_template_polar_pattern_longer = None
             self.torsion_template_r = [-180.0,180.0]
-            self.torsion_template_theta  = 90.0
+            self.torsion_template_theta = 90.0
+            # TODO
+            # https://github.com/profLewis/geogg122/blob/master/Chapter5_Interpolation/python/smoothn.py
+            # Garcia D, Robust smoothing of gridded data in one and higher dimensions with missing values. Computational Statistics & Data Analysis, 2010. http://www.biomecardio.com/pageshtm/publi/csda10.pdf
+            self.torsion_template_theta_resolution = 0.1 # make this resolution adaptable
             self.torsion_template_extra_radian = 0.0
             if do_visualization:
                 self.time_display = 150  # range of frame when plotting graph
@@ -200,7 +227,8 @@ class gaze_inferer:
             #    break
             
             # load frames into memory
-            X_batch = np.zeros((batch_size, 240, 320, 1))
+            # TODO: this will fail! allocate video batch container with correct video shape
+            X_batch = np.zeros((batch_size, 240, 320, infervid_channels))
             counter = 0
             for idx, frame in enumerate(vreader.nextFrame()):
                 X_batch[counter, :, :, :] = preprocess_image(frame, shape_correct)
@@ -216,16 +244,21 @@ class gaze_inferer:
             # predict batch-wise on GPU
             while True:
                 try:
-                    Y_batch = self.model.predict(X_batch, batch_size=batch_size)
+                    Y_batch = self.model.predict(X_batch)
                     break
                 # catching batch_size that exceeds the GPU VRAM
-                except ResourceExhaustedError:
-                    if batch_size > 1:
-                        print("Batch size {} is too large! (causing OOM error)".format(batch_size))
+                except RuntimeError as e:
+                    # from: https://github.com/pytorch/fairseq/blob/50a671f78d0c8de0392f924180db72ac9b41b801/fairseq/trainer.py#L283
+                    if 'out of memory' in str(e):
+                        print('| WARNING: ran out of memory, retrying batch')
                         batch_size = int(batch_size/2)
                         print("Batch size is reduced to {}".format(batch_size))
+                        for p in self.model.parameters():
+                            if p.grad is not None:
+                                del p.grad  # free some memory
+                        self.model.empty_gpu_cache()
                     else:
-                        raise Exception("Minimal batch size is too large.")
+                        raise e
                 # catching batch_size that exceeds the system RAM (unlikely since we now work on )
                 except MemoryError:
                     print("The video or batch size is too large.")
@@ -237,7 +270,11 @@ class gaze_inferer:
                 # put former "self._infer_batch" inline
                 
                 if do_visualization:
-                    vid_frames = np.around(X_batch * 255).astype(np.int)
+                    if np.max(X_batch.ravel())<=1.0:
+                        multiplier = 255.0
+                    else:
+                        multiplier = 1.0
+                    vid_frames = np.around(X_batch*multiplier).astype(np.int) # formerly: *255.0
                     vid_frame_shape_2d = (vid_frames.shape[1], vid_frames.shape[2])
                     
         
@@ -252,16 +289,17 @@ class gaze_inferer:
                         vid_frame = vid_frames[frame_id]
                         
                     if centre is not None:
-                        p_list, n_list, _, consistence = self.eyefitter.gen_consistent_pupil()
+                        p_list, n_list, pupil_radius, consistence = self.eyefitter.gen_consistent_pupil()
                         p1, n1 = p_list[0], n_list[0]
                         px, py, pz = p1[0, 0], p1[1, 0], p1[2, 0]
                         x, y = convert_vec2angle31(n1)
                         positions = (px, py, pz, centre[0], centre[1])  # Pupil 3D positions and 2D projected positions
                         gaze_angles = (x, y)  # horizontal and vertical gaze angles
                         inference_confidence = (ellipse_confidence, consistence)
-                        self.results_recorder.write("%d,%f,%f,%f,%f,%f,%f\n" % (frame_id_global + 1, centre[0], centre[1],
+                        self.results_recorder.write("%d,%f,%f,%f,%f,%f,%f,%f,%f\n" % (frame_id_global + 1, centre[0], centre[1],
                                                                                 x, y,
-                                                                                ellipse_confidence, consistence))
+                                                                                ellipse_confidence, consistence,
+                                                                                pupil_radius[0], pupil_radius[1]))
                         if do_visualization:
                             # # Code below is for drawing video
                             ellipse_centre_np = np.array(centre)
@@ -270,7 +308,7 @@ class gaze_inferer:
                             # The line below is for translation from camera coordinate system (centred at image centre)
                             # to numpy's indexing frame. You substrate the vector by the half of the video's 2D shape. Col = x-axis,
                             # Row = y-axis
-                            projected_eye_centre += np.array(vid_frame_shape_2d).T.reshape(-1, 1) / 2
+                            projected_eye_centre += np.array(vid_frame_shape_2d[::-1]).reshape(-1, 1) / 2
                             
                             vid_frame = draw_vis_on_frame(vid_frame, vid_frame_shape_2d, ellipse_info,
                                                           ellipse_centre_np,
@@ -278,7 +316,8 @@ class gaze_inferer:
                             self.vwriter.writeFrame(vid_frame)
                     else:
                         positions, gaze_angles, inference_confidence = None, None, None
-                        self.results_recorder.write("%d,%f,%f,%f,%f,%f,%f\n" % (frame_id_global + 1, np.nan, np.nan,
+                        self.results_recorder.write("%d,%f,%f,%f,%f,%f,%f,%f,%f\n" % (frame_id_global + 1, np.nan, np.nan,
+                                                                                np.nan, np.nan,
                                                                                 np.nan, np.nan,
                                                                                 np.nan, np.nan))
                         if do_visualization:
@@ -297,11 +336,12 @@ class gaze_inferer:
                     pred_masked = np.ma.masked_where(Y_i < 0.5, Y_i)
                     
                     # Initialize frames and maps: int->float, rgb->gray
-                    frame = img_as_float(X_i)  # frame ~ (240, 320, 1)
-                    frame_gray = rgb2gray(frame)[0, :, :, 0]  # frame_gray ~ (240, 320)
+                    frame = img_as_float(X_i)  # frame ~ (240, 320, infervid_channels)
+                    frame_gray = rgb2gray(frame).squeeze()  # frame_gray ~ (240, 320)
                     
-                    frame_rgb = np.zeros((frame.shape[0], frame.shape[1], 3))  # frame_rgb ~ (240, 320, 3)
-                    frame_rgb[:, :, :] = frame_gray.reshape(frame_gray.shape[0], frame_gray.shape[1], 1)
+                    frame_rgb = frame
+                    #frame_rgb = np.zeros((frame.shape[0], frame.shape[1], 3))  # frame_rgb ~ (240, 320, 3)
+                    #frame_rgb[:, :, :] = frame_gray.reshape(frame_gray.shape[0], frame_gray.shape[1], 1)
                     
                     # extract iris and pupil regions, fit pupil ellipse
                     useful_map, (pupil_map, _, _, _) = getSegmentation_fromDL(Y_i)
@@ -312,8 +352,11 @@ class gaze_inferer:
                     if self.torsion_template_available: #'polar_pattern_template_longer' is not None: # ref_frame > -1:
                         # we have already a valid template
                         # if pupil detection failed, assume torsion as nan, otherwise compute torsion
-                        if centre is None:
-                            # pupil detection failed
+                        # the if conditions here are hacky - find a good way to detect missing pupils - ideally through the network.
+                        if (
+                                (centre is None) or # pupil detection failed 
+                                (np.abs(0.5-np.mean(X_i)>0.4)) # image under-exposed (mean intensity < 0.1) or over-exposed (mean intensity > 0.9)
+                            ): 
                             # skip this frame as reference
                             rotation = np.nan
                             rotated_info = None
@@ -325,13 +368,18 @@ class gaze_inferer:
                                                                     useful_map,
                                                                     center=centre, 
                                                                     filter_sigma=100, 
-                                                                    adhist_times=2)
+                                                                    adhist_times=2,
+                                                                    angular_resolution=self.torsion_template_theta_resolution)
                             #print('Template rotation before template update: %0.2f'%self.current_iris_rotation)
                             self.current_iris_rotation = self.torsion_template_offset + rotation
                             
                             # updating the template necessary?
                             if ( (quality_measures['polar_coverage_percent'] > self.torsion_template_quality_measures['polar_coverage_percent']) & (quality_measures['polar_xgradient_sum'] > self.torsion_template_quality_measures['polar_xgradient_sum']) ):
-                                self.updateTorsionTemplate(frame_id_global, frame_gray, useful_map, centre)
+                                self.updateTorsionTemplate(frame_id_global, 
+                                                           frame_gray, 
+                                                           useful_map, 
+                                                           centre,
+                                                           angular_resolution=self.torsion_template_theta_resolution)
                     else:
                         # there is no template yet (beginning of video)
                         # we need to check whether this is a valid template (pupil detection successful?)
@@ -345,7 +393,11 @@ class gaze_inferer:
                             # we have found a valid reference frame
                             #ref_frame = frame_id
                             # store global index of this image/frame in the video
-                            self.updateTorsionTemplate(frame_id_global, frame_gray, useful_map, centre)
+                            self.updateTorsionTemplate(frame_id_global, 
+                                                       frame_gray, 
+                                                       useful_map, 
+                                                       centre, 
+                                                       angular_resolution=self.torsion_template_theta_resolution)
                             rotation = self.current_iris_rotation
                             rotated_info = self.torsion_template_rotated_info
                             extra_radian = self.torsion_template_extra_radian
@@ -382,7 +434,7 @@ class gaze_inferer:
         if output_vis_path:
             self.vwriter.close()
     
-    def updateTorsionTemplate(self, frame_id_global, frame_gray, useful_map, centre, strategy='replace'):
+    def updateTorsionTemplate(self, frame_id_global, frame_gray, useful_map, centre, strategy='replace', angular_resolution=0.02):
         # generate new template from current gray image 
         polar_pattern_template, \
             polar_pattern_template_longer, \
@@ -390,7 +442,7 @@ class gaze_inferer:
             theta_template, \
             extra_radian, \
             quality_measures = genPolar(frame_gray, useful_map, center=centre, template=True,
-                              filter_sigma=100, adhist_times=2, apply_gaussian_noise=True)
+                              filter_sigma=100, adhist_times=2, apply_gaussian_noise=False, angular_resolution=angular_resolution)
         
         if strategy == 'replace':
             #print('Shape of polar_pattern_template: %s'%str(polar_pattern_template.shape))
@@ -491,15 +543,15 @@ def get_video_info(video_src):
     video_name_with_ext = os.path.split(video_src)[1]
     video_name_root, ext = os.path.splitext(video_name_with_ext)
     vreader = skv.FFmpegReader(video_src)
-    m, w, h, channels = vreader.getShape()
+    m, h, w, channels = vreader.getShape()
     fps = vreader.inputfps
     image_scaling_factor = np.linalg.norm((240, 320)) / np.linalg.norm((h, w))
-    shape_correct = inspectVideoShape(w, h)
-    return video_name_root, ext, vreader, (m, w, h, channels), shape_correct, image_scaling_factor, fps
+    shape_correct = inspectVideoShape(h, w)
+    return video_name_root, ext, vreader, (m, h, w, channels), shape_correct, image_scaling_factor, fps
 
 
-def inspectVideoShape(w, h):
-    if (w, h) == (240, 320):
+def inspectVideoShape(h, w):
+    if (h, w) == (240, 320):
         return True
     else:
         return False
@@ -511,13 +563,17 @@ def computeCroppedShape(ori_video_shape, crop_size):
     return cropped.shape
 
 
-def preprocess_image(img, resizing):
-    output_img = np.zeros((240, 320, 1))
-    img = img / 255
-    img = rgb2gray(img)[0,:,:,0]
-    if resizing == True:
-        img = resize(img, (240, 320))
-    output_img[:, :, :] = img.reshape(240, 320, 1)
+def preprocess_image(img, shape_correct):
+    # preprocessing is outdated, happens now inside model.predict()
+    if True:
+        output_img = np.zeros((240, 320, img.shape[2]))
+        img = img / 255
+        #img = rgb2gray(img)[0,:,:,0]
+        if not shape_correct:
+            #img = resize(img, (240, 320))
+            img = cv2.resize(img, (320,240))
+        output_img[:, :, :] = img.reshape(240, 320, img.shape[2])
+    output_img = img
     return output_img
 
 
@@ -621,7 +677,13 @@ def build_final_output_frame(frames_to_draw):
 
 def draw_vis_on_frame(origin_vid_frame, vid_frame_shape_2d, ellipse_info, ellipse_centre_np, projected_eye_centre,
                       gaze_vec):
-    vid_frame = np.stack((origin_vid_frame[:, :, 0],) * 3, axis=-1)
+    if origin_vid_frame.ndim==2 or (origin_vid_frame.ndim==3 and origin_vid_frame.shape[2]==1):
+        vid_frame = np.stack((origin_vid_frame[:, :, 0],) * 3, axis=-1)
+    elif origin_vid_frame.ndim==3 and origin_vid_frame.shape[2]==3:
+        vid_frame = origin_vid_frame
+    else:
+        print(f'draw_vis_on_frame: Something wrong with shape of video frame ({origin_vid_frame.shape})')
+        return origin_vid_frame
 
     # Draw pupil ellipse
     vid_frame = draw_ellipse(output_frame=vid_frame, frame_shape=vid_frame_shape_2d,

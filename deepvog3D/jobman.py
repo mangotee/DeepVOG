@@ -14,9 +14,9 @@ class deepvog_jobman_CLI(object):
         Args:
             gpu_num (str)
             flen (float)
-            ori_video_shape (tuple)
-            sensor_size (tuple)
-            batch_size (int)
+            ori_video_shape (tuple): pixel size of video in (height x width)
+            sensor_size (tuple): sensor size in inch (height x width)
+            batch_size (int): minibatch size for inference
         
         """
         os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID" 

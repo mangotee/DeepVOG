@@ -1,3 +1,4 @@
+'''
 import urwid
 import numpy
 import os
@@ -738,11 +739,15 @@ class deepvog_tui(object):
 
         all_names = list(map(lambda x : os.path.split(x)[1], all_paths))
         return all_paths, all_names
-
-
+'''
+class deepvog_tui(object):
+    def __init__(self):
+        pass
 
 if __name__ == "__main__":
-    if len(sys.argv)>1:
+    '''if len(sys.argv)>1:
 
         tui = deepvog_tui(str(sys.argv[1]))
         tui.run_tui()
+    '''
+    pass

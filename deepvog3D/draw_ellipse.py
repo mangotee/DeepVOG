@@ -37,9 +37,18 @@ def gen_ellipse_contour_perim(perim, color = "r"):
             fitted = LSqEllipse()
             fitted.fit([vertices[:,1], vertices[:,0]])
             center, w,h, radian = fitted.parameters()
-            ell = mpl.patches.Ellipse(xy = [center[0],center[1]], width = w*2, height = h*2, angle = np.rad2deg(radian), fill = False, color = color)
+            ell = mpl.patches.Ellipse(xy = [center[0],center[1]], 
+                                      width = w*2, 
+                                      height = h*2, 
+                                      angle = np.rad2deg(radian), 
+                                      fill = False, 
+                                      color = color)
             # Because of the np indexing of y-axis, orientation needs to be minus
-            rr, cc = ellipse_perimeter(int(np.round(center[0])), int(np.round(center[1])), int(np.round(w)), int(np.round(h)), -radian)
+            rr, cc = ellipse_perimeter(int(np.round(center[0])), 
+                                       int(np.round(center[1])), 
+                                       int(np.round(w)), 
+                                       int(np.round(h)), 
+                                       -radian)
             return (rr, cc, center, w, h, radian, ell)
         except:
             return None
